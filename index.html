@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fwea‑I Dual Remix Player</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+  <!-- Wavesurfer -->
+  <script src="https://unpkg.com/wavesurfer.js"></script>
+  <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/timeline.min.js"></script>
+  <style>
+    body{background:linear-gradient(135deg,#232526 0%,#414345 100%);min-height:100vh;font-family:'Segoe UI',sans-serif;color:#fff}
+    .player-boundary{background:rgba(44,44,54,.97);border-radius:2rem;box-shadow:0 8px 32px 0 rgba(31,38,135,.27);border:3px solid #00ffaa;max-width:1200px;margin:3rem auto;padding:3.5rem 2rem;position:relative}
+    .playlist-row{display:flex;gap:2rem;justify-content:center;margin-bottom:2rem}
+    .playlist-section{background:#2d2d35;border-radius:1.5rem;box-shadow:0 4px 24px 0 rgba(0,0,0,.18);padding:2rem 1.5rem;flex:1 1 0;min-width:320px}
+    .songbank{max-height:260px;overflow:auto;padding-right:.25rem;scrollbar-width:thin}
+    html::-webkit-scrollbar{width:8px;height:8px}
+    html::-webkit-scrollbar-thumb{background:#00ffaa66;border-radius:8px}
+    html::-webkit-scrollbar-track{background:#1f1f27}
+    .playlist-title{font-size:1.5rem;font-weight:700;color:#00ffaa;margin-bottom:1rem;letter-spacing:1px}
+    .playlist-title.remix{color:#06b6d4}
+    .playlist-item{background:#23232a;border-radius:.7rem;margin-bottom:.5rem;padding:.8rem 1.2rem;font-size:1.1rem;cursor:pointer;transition:background .2s,color .2s,transform .2s}
+    .playlist-item:hover,.playlist-item.active{background:linear-gradient(90deg,#00ffaa33 0%,#06b6d433 100%);color:#00ffaa;transform:scale(1.03)}
+    .master-volume-container{display:flex;align-items:center;justify-content:center;margin-bottom:2rem}
+    .master-volume-label{font-size:1.2rem;margin-right:1rem;color:#00ffaa;letter-spacing:1px}
+    .waveform-stack{display:flex;flex-direction:column;gap:2.5rem;margin:2.5rem 0}
+    .waveform-heartbeat{
+      position:relative;
+      width:100%;
+      height:120px;
+      border-radius:2rem;
+      overflow:hidden; /* keep borders clipped to container */
+      box-shadow:0 2px 24px 0 rgba(0,255,170,.09);
+      background:transparent;
+    }
+    .waveform-heartbeat .heartbeat-bg{
+      position:absolute;
+      inset:6px;               /* insets create an even inner border */
+      pointer-events:none;
+      border:#00ffaa88 2px solid;
+      border-radius:1.3rem;
+    }
+    .waveform-heartbeat:last-child .heartbeat-bg{border:#06b6d488 2px solid}
+    .waveform-inner{
+      position:absolute;
+      inset:0;
+      z-index:2; /* ensure waveform sits above decorative background */
+    }
+    .wave-timeline{
+      position:absolute;
+      left:12px;
+      right:12px;
+      bottom:6px;
+      height:18px;
+      z-index:3;
+      pointer-events:none;
+    }
+    .timebar{
+      position:absolute;
+      right:16px;
+      top:10px;
+      z-index:4;
+      font-size:.85rem;
+      color:#cfe;
+      text-shadow:0 0 6px rgba(0,255,170,.35);
+    }
+    /* Subtle inner glow for cleaner border look */
+    #waveform-original-container .heartbeat-bg{box-shadow:inset 0 0 0 2px rgba(0,255,170,.28), 0 0 24px rgba(0,255,170,.08)}
+    #waveform-remix-container .heartbeat-bg{box-shadow:inset 0 0 0 2px rgba(6,182,212,.28), 0 0 24px rgba(6,182,212,.08)}
+    .pulse-overlay{
+      position:absolute;
+      left:-100%;
+      top:0;
+      width:8vw;
+      height:100%;
+      pointer-events:none;
+      background:linear-gradient(90deg,transparent 0%,#00ffaa88 50%,transparent 100%);
+      animation:pulse 2s linear infinite;
+      opacity:.22;
+      mix-blend-mode:lighten
+    }
+    .waveform-heartbeat:last-child .pulse-overlay{background:linear-gradient(90deg,transparent 0%,#06b6d488 50%,transparent 100%)}
+    @keyframes pulse{to{left:100%}}
+    .crossfader-container{display:flex;align-items:center;justify-content:center;margin-top:2rem;margin-bottom:1rem}
+    .crossfader-label{font-size:1.1rem;color:#06b6d4;margin:0 1rem;letter-spacing:1px}
+    .crossfader-slider{width:420px;accent-color:#06b6d4;height:8px}
+    .neon-btn{box-shadow:0 0 12px 2px currentColor,0 0 32px 4px currentColor;border:2px solid currentColor;font-weight:700;transition:background .2s,color .2s,box-shadow .2s,transform .2s;background:transparent;color:inherit;text-shadow:0 0 8px currentColor}
+    .neon-btn:hover{background:currentColor!important;color:#23232a!important;transform:scale(1.05);box-shadow:0 0 24px 6px currentColor,0 0 48px 12px currentColor;text-shadow:none}
+    @media(max-width:900px){.playlist-row{flex-direction:column}.waveform-heartbeat{height:88px}.crossfader-slider{width:90vw}}
+  </style>
+</head>
+<body>
+  <div class="player-boundary">
+    <!-- Playlists -->
+    <div class="playlist-row">
+      <div class="playlist-section">
+        <div class="playlist-title">Originals</div>
+        <ul id="originals-list" class="songbank"></ul>
+      </div>
+      <div class="playlist-section">
+        <div class="playlist-title remix">Remixes</div>
+        <ul id="remixes-list" class="songbank"></ul>
+      </div>
+    </div>
+
+    <!-- Master volume -->
+    <div class="master-volume-container">
+      <span class="master-volume-label">Master Volume</span>
+      <input type="range" id="master-volume" min="0" max="1" step="0.01" value="1" style="width:320px;accent-color:#00ffaa;height:8px" />
+    </div>
+
+    <!-- Stacked waveforms -->
+    <div class="waveform-stack">
+      <div class="waveform-heartbeat" id="waveform-original-container">
+        <div class="heartbeat-bg">
+          <svg viewBox="0 0 900 120" preserveAspectRatio="none">
+            <defs>
+              <mask id="heartbeat-mask-original">
+                <rect width="900" height="120" fill="white"/>
+                <polyline points="0,60 80,60 120,100 180,20 240,100 300,60 340,60 400,80 460,40 520,100 580,60 640,60 700,80 760,40 820,100 900,60" fill="none" stroke="black" stroke-width="16" stroke-linejoin="round" stroke-linecap="round"/>
+              </mask>
+            </defs>
+            <rect width="900" height="120" fill="#00ffaa" mask="url(#heartbeat-mask-original)" opacity="0.13"/>
+          </svg>
+        </div>
+        <div class="pulse-overlay"></div>
+        <div id="waveform-original" class="waveform-inner"></div>
+        <div id="timeline-original" class="wave-timeline"></div>
+        <div class="timebar"><span id="curA">0:00</span> / <span id="durA">0:00</span></div>
+      </div>
+
+      <div class="waveform-heartbeat" id="waveform-remix-container">
+        <div class="heartbeat-bg">
+          <svg viewBox="0 0 900 120" preserveAspectRatio="none">
+            <defs>
+              <mask id="heartbeat-mask-remix">
+                <rect width="900" height="120" fill="white"/>
+                <polyline points="0,60 60,80 120,40 180,100 240,60 300,20 360,100 420,60 480,80 540,40 600,100 660,60 720,20 780,100 840,60 900,60" fill="none" stroke="black" stroke-width="16" stroke-linejoin="round" stroke-linecap="round"/>
+              </mask>
+            </defs>
+            <rect width="900" height="120" fill="#06b6d4" mask="url(#heartbeat-mask-remix)" opacity="0.13"/>
+          </svg>
+        </div>
+        <div class="pulse-overlay"></div>
+        <div id="waveform-remix" class="waveform-inner"></div>
+        <div id="timeline-remix" class="wave-timeline"></div>
+        <div class="timebar"><span id="curB">0:00</span> / <span id="durB">0:00</span></div>
+      </div>
+    </div>
+
+    <!-- Transport -->
+    <div class="flex justify-center gap-6 my-8">
+      <button class="flex flex-col items-center group focus:outline-none" id="play-btn">
+        <div class="rounded-full bg-[#00ffaa] bg-opacity-20 p-4 mb-2 shadow-lg group-hover:bg-opacity-40 transition"><svg width="36" height="36" viewBox="0 0 36 36"><polygon points="12,8 28,18 12,28" fill="#00ffaa"/></svg></div>
+        <span class="font-bold text-[#00ffaa] group-hover:underline">Play</span>
+      </button>
+      <button class="flex flex-col items-center group focus:outline-none" id="pause-btn">
+        <div class="rounded-full bg-[#06b6d4] bg-opacity-20 p-4 mb-2 shadow-lg group-hover:bg-opacity-40 transition"><svg width="36" height="36" viewBox="0 0 36 36"><rect x="10" y="8" width="5" height="20" fill="#06b6d4"/><rect x="21" y="8" width="5" height="20" fill="#06b6d4"/></svg></div>
+        <span class="font-bold text-[#06b6d4] group-hover:underline">Pause</span>
+      </button>
+      <button class="flex flex-col items-center group focus:outline-none" id="stop-btn">
+        <div class="rounded-full bg-[#f472b6] bg-opacity-20 p-4 mb-2 shadow-lg group-hover:bg-opacity-40 transition"><svg width="36" height="36" viewBox="0 0 36 36"><rect x="10" y="10" width="16" height="16" fill="#f472b6"/></svg></div>
+        <span class="font-bold text-[#f472b6] group-hover:underline">Stop</span>
+      </button>
+      <button class="flex flex-col items-center group focus:outline-none" id="sync-btn">
+        <div class="rounded-full bg-[#a3e635] bg-opacity-20 p-4 mb-2 shadow-lg group-hover:bg-opacity-40 transition"><svg width="36" height="36" viewBox="0 0 36 36"><path d="M18 8a10 10 0 1 1-7.07 2.93" fill="none" stroke="#a3e635" stroke-width="2"/><polygon points="8,8 16,8 12,16" fill="#a3e635"/></svg></div>
+        <span class="font-bold text-[#a3e635] group-hover:underline">Sync</span>
+      </button>
+      <button class="flex flex-col items-center group focus:outline-none" id="loop-btn" title="Loop">
+        <div class="rounded-full bg-[#818cf8] bg-opacity-20 p-4 mb-2 shadow-lg group-hover:bg-opacity-40 transition"><svg width="36" height="36" viewBox="0 0 36 36"><path d="M10 18c0-4.4 3.6-8 8-8h4" fill="none" stroke="#818cf8" stroke-width="2"/><polygon points="22,6 28,10 22,14" fill="#818cf8"/><path d="M26 18c0 4.4-3.6 8-8 8h-4" fill="none" stroke="#818cf8" stroke-width="2"/><polygon points="14,30 8,26 14,22" fill="#818cf8"/></svg></div>
+        <span class="font-bold text-[#818cf8] group-hover:underline">Loop</span>
+      </button>
+      <button class="flex flex-col items-center group focus:outline-none" id="shuffle-btn" title="Shuffle & Play">
+        <div class="rounded-full bg-white bg-opacity-10 p-4 mb-2 shadow-lg group-hover:bg-opacity-30 transition">🔀</div>
+        <span class="font-bold text-white group-hover:underline">Shuffle</span>
+      </button>
+    </div>
+
+    <!-- Crossfader -->
+    <div class="crossfader-container">
+      <span class="crossfader-label">Original</span>
+      <input type="range" id="crossfade" min="0" max="1" step="0.01" value="0.5" class="crossfader-slider" />
+      <span class="crossfader-label">Remix</span>
+    </div>
+
+    <!-- Booking -->
+    <section class="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6">
+      <button class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#00ffaa" data-plan="standard" data-link="">Book a Remix — <b>$250</b> (Standard)</button>
+      <button class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#06b6d4" data-plan="creator" data-link="">Creator Remix — <b>$500</b></button>
+      <button class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#818cf8" data-plan="express" data-link="">Express Remix — <b>$1000</b></button>
+      <button class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#fbbf24" data-plan="clean" data-link="">Clean Version Edit — <b>$175</b></button>
+    </section>
+  </div>
+
+  <script>
+    // ---- Config (EDIT THESE) ----
+    // If you have a Worker at https://YOUR_WORKER.example.workers.dev use that origin.
+    const WORKER_BASE_URL = 'https://remix-exp-backend.fweago-flavaz.workers.dev';
+    const PRICE_IDS = {
+      // Paste your real Stripe Price IDs here:
+      // standard: 'price_...', creator: 'price_...', express: 'price_...', clean: 'price_...'
+    };
+    const PAYMENT_LINKS = {
+      standard: 'https://buy.stripe.com/00wcN69HP9aj3A62vyfbq0a', // $250 Standard
+      creator:  'https://buy.stripe.com/aFa4gAbPXfyH9Yu6LOfbq0b', // $500 Creator (same link provided)
+      express:  'https://buy.stripe.com/3cI6oIg6d86f2w2b24fbq0c', // $1000 Express
+      clean:    'https://buy.stripe.com/28E3cw8DLdqz4Ea7PSfbq0d'  // $175 Clean Version Edit
+    };
+
+    // push links into the buttons’ data-link attrs so they’re clickable even with JS-disabled copy
+    window.addEventListener('DOMContentLoaded', ()=>{
+      const map = {standard:'standard',creator:'creator',express:'express',clean:'clean'};
+      Object.entries(map).forEach(([key,plan])=>{
+        const btn = document.querySelector(`[data-plan="${plan}"]`);
+        if(btn && PAYMENT_LINKS[key]) btn.setAttribute('data-link', PAYMENT_LINKS[key]);
+      });
+    });
+
+    const PLAN_LABEL = {
+      standard: 'Book a Remix — $250 (Standard)',
+      creator: 'Creator Remix — $500',
+      express: 'Express Remix — $1000',
+      clean: 'Clean Version Edit — $175'
+    };
+    window.addEventListener('DOMContentLoaded', ()=>{
+      document.querySelectorAll('[data-plan]').forEach(btn=>{
+        const plan = btn.getAttribute('data-plan');
+        if(PLAN_LABEL[plan]) btn.setAttribute('title', PLAN_LABEL[plan]);
+      });
+    });
+
+    // ---- Demo Playlists (replace with your tracks/URLs) ----
+    async function loadPlaylistsFromBackend(){
+      const base = WORKER_BASE_URL?.replace(/\/+$/,'');
+      if(!base) return null;
+      try{
+        const resp = await fetch(`${base}/playlist`, { headers: { 'Accept': 'application/json' } });
+        if(!resp.ok) return null;
+        const data = await resp.json();
+        if(Array.isArray(data?.originals) && Array.isArray(data?.remixes)){
+          return data;
+        }
+      }catch(e){}
+      return null;
+    }
+
+    let originals = [];
+    let remixes = [];
+    const DEMO_ORIGINALS = [
+      {name:'Original 1',url:'https://www.kozco.com/tech/piano2-CoolEdit.mp3'},
+      {name:'Original 2',url:'https://www.kozco.com/tech/organfinale.mp3'},
+      {name:'Original 3',url:'https://www.kozco.com/tech/organfinale.mp3#t=10'},
+      {name:'Original 4',url:'https://www.kozco.com/tech/piano2-CoolEdit.mp3#t=5'},
+      {name:'Original 5',url:'https://www.kozco.com/tech/LRMonoPhase4.mp3'},
+      {name:'Original 6',url:'https://www.kozco.com/tech/32.mp3'}
+    ];
+    const DEMO_REMIXES = [
+      {name:'Remix 1',url:'https://www.kozco.com/tech/LRMonoPhase4.mp3'},
+      {name:'Remix 2',url:'https://www.kozco.com/tech/32.mp3'},
+      {name:'Remix 3',url:'https://www.kozco.com/tech/piano2-CoolEdit.mp3'},
+      {name:'Remix 4',url:'https://www.kozco.com/tech/organfinale.mp3'},
+      {name:'Remix 5',url:'https://www.kozco.com/tech/organfinale.mp3#t=20'},
+      {name:'Remix 6',url:'https://www.kozco.com/tech/piano2-CoolEdit.mp3#t=15'}
+    ];
+
+    let originalWave = null, remixWave = null;
+    let isLooping = false;
+    let masterVolume = 1;
+    let currentIndex=0;
+
+    // Render playlists
+    function renderPlaylists(){
+      const origUl = document.getElementById('originals-list');
+      const remixUl = document.getElementById('remixes-list');
+      origUl.innerHTML = ''; remixUl.innerHTML='';
+      originals.forEach((t, i)=>{
+        const li = document.createElement('li');
+        li.className='playlist-item';
+        li.textContent=t.name;
+        li.setAttribute('data-index', i);
+        li.tabIndex=0;
+        li.onclick = ()=> selectPair(i);
+        li.addEventListener('keydown', (e)=>{
+          if(e.key==='Enter'||e.key===' '||e.key==='Spacebar'){
+            e.preventDefault(); selectPair(i);
+          }
+        });
+        origUl.appendChild(li);
+      });
+      remixes.forEach((t, i)=>{
+        const li = document.createElement('li');
+        li.className='playlist-item';
+        li.textContent=t.name;
+        li.setAttribute('data-index', i);
+        li.tabIndex=0;
+        li.onclick = ()=> selectPair(i);
+        li.addEventListener('keydown', (e)=>{
+          if(e.key==='Enter'||e.key===' '||e.key==='Spacebar'){
+            e.preventDefault(); selectPair(i);
+          }
+        });
+        remixUl.appendChild(li);
+      });
+    }
+
+    function scrollActiveIntoView(listEl){
+      const el = listEl.querySelector('.playlist-item.active');
+      if(el) el.scrollIntoView({block:'nearest'});
+    }
+
+    function highlightActive(i){
+      document.querySelectorAll('#originals-list .playlist-item').forEach((el, idx)=> el.classList.toggle('active', idx===i));
+      document.querySelectorAll('#remixes-list .playlist-item').forEach((el, idx)=> el.classList.toggle('active', idx===i));
+      scrollActiveIntoView(document.getElementById('originals-list'));
+      scrollActiveIntoView(document.getElementById('remixes-list'));
+    }
+
+    function createWaveform(containerSelector, color, timelineSelector){
+      const ws = WaveSurfer.create({
+        container: containerSelector,
+        waveColor: color,
+        progressColor: '#ffffff',
+        height: 120,
+        barWidth: 2,
+        responsive: true,
+        cursorColor: '#fff'
+      });
+      // Attach timeline plugin if available
+      try{
+        if (window.WaveSurfer && window.WaveSurfer.Timeline && timelineSelector){
+          ws.registerPlugin(WaveSurfer.Timeline.create({
+            container: timelineSelector,
+            height: 18,
+            primaryColor: color,
+            secondaryColor: 'rgba(255,255,255,.25)',
+            style: { fontSize: '10px' }
+          }));
+        }
+      }catch(e){ /* ignore plugin issues */ }
+      return ws;
+    }
+
+    const fmtTime = (t=0)=>{
+      t = Math.max(0, t|0);
+      const m = (t/60)|0, s = (t%60)|0;
+      return `${m}:${s.toString().padStart(2,'0')}`;
+    };
+    function bindTimebars(ws, curEl, durEl){
+      if(!ws) return;
+      ws.on('decode', dur=>{ if(durEl) durEl.textContent = fmtTime(dur); });
+      ws.on('ready', ()=>{ if(durEl) durEl.textContent = fmtTime(ws.getDuration()); });
+      ws.on('timeupdate', t=>{ if(curEl) curEl.textContent = fmtTime(t); });
+    }
+
+    function destroyWave(w){ if(w){ try{w.destroy()}catch(e){} } }
+
+    function addLoop(w){ if(!w) return; w.un('finish'); w.on('finish', ()=>{ if(isLooping) w.play(0); }); }
+
+    function applyVolumes(){
+      const x = parseFloat(document.getElementById('crossfade').value); // 0..1
+      const m = masterVolume;
+      const vA = Math.max(0, Math.min(1, (1 - x))) * m; // original
+      const vB = Math.max(0, Math.min(1, x)) * m;       // remix
+      if(originalWave && originalWave.setVolume) originalWave.setVolume(vA);
+      if(remixWave && remixWave.setVolume) remixWave.setVolume(vB);
+    }
+
+    function syncPlay(){
+      if(originalWave && remixWave && !originalWave.isPlaying()) originalWave.playPause();
+      if(originalWave && remixWave && !remixWave.isPlaying()) remixWave.playPause();
+    }
+
+    function selectPair(i){
+      // Clamp i to valid index
+      const maxIdx = Math.min(originals.length, remixes.length) - 1;
+      i = Math.max(0, Math.min(i, maxIdx));
+      currentIndex = i;
+      // Originals
+      destroyWave(originalWave);
+      originalWave = createWaveform('#waveform-original', '#00ffaa', '#timeline-original');
+      originalWave.load(originals[i]?.url || originals[0]?.url);
+      originalWave.on('ready', ()=>{ addLoop(originalWave); applyVolumes(); originalWave.play(); });
+      bindTimebars(originalWave, document.getElementById('curA'), document.getElementById('durA'));
+      // Remixes
+      destroyWave(remixWave);
+      remixWave = createWaveform('#waveform-remix', '#06b6d4', '#timeline-remix');
+      remixWave.load(remixes[i]?.url || remixes[0]?.url);
+      remixWave.on('ready', ()=>{ addLoop(remixWave); applyVolumes(); remixWave.play(); });
+      bindTimebars(remixWave, document.getElementById('curB'), document.getElementById('durB'));
+      // Sync transport
+      if(originalWave && originalWave.on) originalWave.on('play', syncPlay);
+      if(remixWave && remixWave.on) remixWave.on('play', syncPlay);
+      highlightActive(i);
+      applyVolumes();
+    }
+
+    // Transport handlers
+    document.getElementById('play-btn').onclick = ()=>{ originalWave?.play(); remixWave?.play(); };
+    document.getElementById('pause-btn').onclick = ()=>{ originalWave?.pause(); remixWave?.pause(); };
+    document.getElementById('stop-btn').onclick = ()=>{
+      originalWave?.stop(); remixWave?.stop();
+      document.getElementById('curA').textContent = '0:00';
+      document.getElementById('curB').textContent = '0:00';
+    };
+    document.getElementById('sync-btn').onclick = ()=>{
+      if(originalWave && remixWave){
+        const t = Math.min(originalWave.getCurrentTime(), remixWave.getCurrentTime());
+        if(originalWave.getDuration()>0) originalWave.seekTo(t / originalWave.getDuration());
+        if(remixWave.getDuration()>0) remixWave.seekTo(t / remixWave.getDuration());
+      }
+    };
+    document.getElementById('loop-btn').onclick = function(){ isLooping=!isLooping; this.classList.toggle('active', isLooping); addLoop(originalWave); addLoop(remixWave); };
+    document.getElementById('shuffle-btn').onclick = ()=>{ const i = Math.floor(Math.random()*Math.min(originals.length, remixes.length)); selectPair(i); };
+
+    // Volume / crossfade
+    document.getElementById('master-volume').oninput = function(){ masterVolume=parseFloat(this.value); applyVolumes(); };
+    document.getElementById('crossfade').oninput = applyVolumes;
+
+    // Booking buttons – Cloudflare Worker friendly, with Payment Link fallback
+    async function book(plan, btn){
+      const linkAttr = btn?.getAttribute('data-link')||'';
+      const direct = linkAttr || PAYMENT_LINKS[plan] || '';
+      if(direct){ window.location.href = direct; return; }
+      const priceId = PRICE_IDS[plan];
+      const base = WORKER_BASE_URL?.replace(/\/+$/,'') || '';
+      if(priceId && base){
+        try{ const resp = await fetch(`${base}/create-payment`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ type: plan, priceId })}); const data = await resp.json(); if(data?.url){ window.location.href = data.url; } else { throw new Error(data?.error||'Unknown error'); } }catch(e){ alert('Booking failed: '+e.message); }
+        return;
+      }
+      alert('Add a Stripe Payment Link (data-link or PAYMENT_LINKS) or set WORKER_BASE_URL + PRICE_IDS to enable checkout.');
+    }
+
+    document.querySelectorAll('[data-plan]').forEach(btn=> btn.addEventListener('click', ()=> book(btn.getAttribute('data-plan'), btn)));
+
+    // Init – prefer pairs if available, fallback to originals/remixes, then demo
+    (async ()=>{
+      const fromBackend = await loadPlaylistsFromBackend();
+      if (fromBackend && Array.isArray(fromBackend.pairs) && fromBackend.pairs.length) {
+        // Build banks from pairs to guarantee 1:1 mapping by index.
+        originals = fromBackend.pairs.map((p, i) => ({
+          name: p.originalLabel || `Original ${String(i+1).padStart(2,'0')}`,
+          url:  p.originalUrl
+        }));
+        remixes = fromBackend.pairs.map((p, i) => ({
+          name: p.remixLabel || `Remix ${String(i+1).padStart(2,'0')}`,
+          url:  p.remixUrl
+        }));
+      } else if (fromBackend && Array.isArray(fromBackend.originals) && Array.isArray(fromBackend.remixes)) {
+        originals = fromBackend.originals;
+        remixes   = fromBackend.remixes;
+      } else {
+        originals = DEMO_ORIGINALS;
+        remixes   = DEMO_REMIXES;
+      }
+      renderPlaylists();
+      if (originals.length && remixes.length) selectPair(0);
+    })();
+  </script>
+</body>
+</html>
