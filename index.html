@@ -46,6 +46,28 @@
       inset:0;
       z-index:2; /* ensure waveform sits above decorative background */
     }
+    /* Blend song waveform with the decorative background for a syringe-like tunnel */
+    .waveform-inner canvas{
+      mix-blend-mode:screen;           /* brighten where the real waveform crosses the glow */
+      opacity:.95;
+      filter:drop-shadow(0 0 10px rgba(0,255,170,.35));
+    }
+    #waveform-remix-container .waveform-inner canvas{
+      filter:drop-shadow(0 0 10px rgba(6,182,212,.35));
+    }
+    /* Syringe rail: a faint inner gradient band the real waveform rides in */
+    .syringe-rail{
+      position:absolute; inset:18px 8px 18px 8px; border-radius:1.2rem; z-index:1; pointer-events:none;
+      background:linear-gradient(180deg,rgba(0,0,0,.0) 0%, rgba(0,0,0,.18) 50%, rgba(0,0,0,.0) 100%),
+                 linear-gradient(90deg, rgba(0,255,170,.12), rgba(255,255,255,.06) 50%, rgba(6,182,212,.12));
+      box-shadow:inset 0 0 22px rgba(255,255,255,.06);
+    }
+    #waveform-remix-container .syringe-rail{
+      background:linear-gradient(180deg,rgba(0,0,0,.0) 0%, rgba(0,0,0,.18) 50%, rgba(0,0,0,.0) 100%),
+                 linear-gradient(90deg, rgba(6,182,212,.12), rgba(255,255,255,.06) 50%, rgba(0,255,170,.12));
+    }
+    /* Soften the decorative heartbeat SVG so it complements the real waveform */
+    .waveform-heartbeat .heartbeat-bg svg{opacity:.35}
     .wave-timeline{
       position:absolute;
       left:12px;
@@ -123,6 +145,7 @@
             <rect width="900" height="120" fill="#00ffaa" mask="url(#heartbeat-mask-original)" opacity="0.13"/>
           </svg>
         </div>
+        <div class="syringe-rail"></div>
         <div class="pulse-overlay"></div>
         <div id="waveform-original" class="waveform-inner"></div>
         <div id="timeline-original" class="wave-timeline"></div>
@@ -141,6 +164,7 @@
             <rect width="900" height="120" fill="#06b6d4" mask="url(#heartbeat-mask-remix)" opacity="0.13"/>
           </svg>
         </div>
+        <div class="syringe-rail"></div>
         <div class="pulse-overlay"></div>
         <div id="waveform-remix" class="waveform-inner"></div>
         <div id="timeline-remix" class="wave-timeline"></div>
@@ -318,10 +342,13 @@
     function createWaveform(containerSelector, color, timelineSelector){
       const ws = WaveSurfer.create({
         container: containerSelector,
-        waveColor: color,
-        progressColor: '#ffffff',
+        waveColor: 'rgba(255,255,255,0.08)',   // faint base so background art shines through
+        progressColor: color,                  // strong neon for the audible portion
         height: 120,
-        barWidth: 2,
+        barWidth: 1,
+        barGap: 1,
+        partialRender: true,
+        normalize: true,
         responsive: true,
         cursorColor: '#fff'
       });
@@ -337,6 +364,10 @@
           }));
         }
       }catch(e){ /* ignore plugin issues */ }
+      ws.on('ready', ()=>{
+        const c = document.querySelector(`${containerSelector} canvas`);
+        if(c){ c.style.mixBlendMode='screen'; c.style.opacity='0.95'; }
+      });
       return ws;
     }
 
@@ -411,6 +442,19 @@
     };
     document.getElementById('loop-btn').onclick = function(){ isLooping=!isLooping; this.classList.toggle('active', isLooping); addLoop(originalWave); addLoop(remixWave); };
     document.getElementById('shuffle-btn').onclick = ()=>{ const i = Math.floor(Math.random()*Math.min(originals.length, remixes.length)); selectPair(i); };
+
+    // Spacebar toggles Play/Pause when not typing in an input or textarea
+    document.addEventListener('keydown', (e)=>{
+      if(e.code === 'Space' && !e.repeat){
+        const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+        if(tag !== 'input' && tag !== 'textarea'){
+          e.preventDefault();
+          const anyPlaying = (originalWave && originalWave.isPlaying && originalWave.isPlaying()) || (remixWave && remixWave.isPlaying && remixWave.isPlaying());
+          if(anyPlaying){ originalWave?.pause(); remixWave?.pause(); }
+          else { originalWave?.play(); remixWave?.play(); }
+        }
+      }
+    });
 
     // Volume / crossfade
     document.getElementById('master-volume').oninput = function(){ masterVolume=parseFloat(this.value); applyVolumes(); };
