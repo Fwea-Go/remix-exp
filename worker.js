@@ -5,7 +5,7 @@ function corsHeaders(req) {
   return {
     'Access-Control-Allow-Origin': origin,
     'Vary': 'Origin',
-    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Range, Cache-Control',
     'Access-Control-Expose-Headers':
       'Content-Length, Content-Range, Accept-Ranges, Content-Type, ETag, Last-Modified',
@@ -13,6 +13,15 @@ function corsHeaders(req) {
 }
 const json = (req, data, status=200) =>
   new Response(JSON.stringify(data), { status, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } });
+
+function adminOk(req, env) {
+  const header = req.headers.get('Authorization') || '';
+  const bearer = header.replace(/^Bearer\s+/i, '').trim();
+  const url = new URL(req.url);
+  const q = url.searchParams.get('token') || '';
+  const token = env.PLAYLIST_WRITE_TOKEN || '';
+  return token && (bearer === token || q === token);
+}
 
 function parseRange(h) {
   if (!h) return undefined;
@@ -65,6 +74,35 @@ async function listPrefix(AUDIO, prefix) {
     cursor = truncated ? cur : undefined;
   } while (cursor);
   return out;
+}
+
+async function buildManifest(url, AUDIO, oPrefix='originals/', rPrefix='remixes/') {
+  const originals = (await listPrefix(AUDIO, oPrefix)).filter(k => !k.endsWith('/'));
+  const remixes   = (await listPrefix(AUDIO, rPrefix)).filter(k => !k.endsWith('/'));
+  originals.sort(byLeadingNumberThenName);
+  remixes.sort(byLeadingNumberThenName);
+
+  const toArr = (keys, label) => keys.map((k, i) => ({
+    name: `${label} ${String(i+1).padStart(2,'0')}`,
+    url: `${url.origin}/r2/${encodeURIComponent(k)}`
+  }));
+
+  const pairs = [];
+  const len = Math.min(originals.length, remixes.length);
+  for (let i = 0; i < len; i++) {
+    pairs.push({
+      index: i,
+      title: `Track ${String(i+1).padStart(2,'0')}`,
+      originalUrl: `${url.origin}/r2/${encodeURIComponent(originals[i])}`,
+      remixUrl: `${url.origin}/r2/${encodeURIComponent(remixes[i])}`
+    });
+  }
+
+  return {
+    originals: toArr(originals, 'Original'),
+    remixes: toArr(remixes, 'Remix'),
+    pairs
+  };
 }
 
 export default {
@@ -203,6 +241,27 @@ export default {
       return new Response(body, { status: upstream.status, statusText: upstream.statusText, headers });
     }
 
-    return json(request, { ok: true, endpoints: ['/playlist?originals=&remixes=&shuffle=1', '/r2/<key>', '/audio?src=…', '/health'] });
+    // 4) Generate playlist.json from current R2 contents.
+    //    Use Authorization: Bearer <PLAYLIST_WRITE_TOKEN> header or ?token=...
+    if (pathname === '/playlist/generate') {
+      if (!env.AUDIO) return json(request, { error: 'R2 not configured' }, 500);
+      const oPrefix = searchParams.get('originals') || 'originals/';
+      const rPrefix = searchParams.get('remixes')   || 'remixes/';
+      const dryrun = (searchParams.get('dryrun') || '').toLowerCase() === '1';
+
+      const manifest = await buildManifest(url, env.AUDIO, oPrefix, rPrefix);
+
+      // If dryrun or no token, just preview without writing.
+      if (!adminOk(request, env) || dryrun) {
+        return json(request, { wrote: false, dryrun: dryrun, manifest });
+      }
+
+      await env.AUDIO.put('playlist.json', JSON.stringify(manifest, null, 2), {
+        httpMetadata: { contentType: 'application/json', cacheControl: 'no-store' }
+      });
+      return json(request, { wrote: true, key: 'playlist.json', bytes: JSON.stringify(manifest).length, manifest });
+    }
+
+    return json(request, { ok: true, endpoints: ['/playlist?originals=&remixes=&shuffle=1', '/playlist/generate?dryrun=1', '/r2/<key>', '/audio?src=…', '/health'] });
   },
 };
