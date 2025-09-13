@@ -36,17 +36,21 @@ function byLeadingNumberThenName(a, b) {
   }
   return natSort(a, b);
 }
-function buildPairs(origin, remix, originBase, remixBase) {
+function buildPairs(origin, remix, originBase, remixBase, { generic=true } = {}) {
   const len = Math.min(origin.length, remix.length);
   const pairs = [];
   for (let i = 0; i < len; i++) {
+    const idx = i + 1;
+    const originalLabel = generic ? `Original ${String(idx).padStart(2,'0')}` : origin[i].split('/').pop();
+    const remixLabel    = generic ? `Remix ${String(idx).padStart(2,'0')}`    : remix[i].split('/').pop();
     pairs.push({
       index: i,
-      title: `Track ${String(i+1).padStart(2,'0')}`,
+      title: `Track ${String(idx).padStart(2,'0')}`,
       originalUrl: `${originBase}/${encodeURIComponent(origin[i])}`,
       remixUrl:    `${remixBase}/${encodeURIComponent(remix[i])}`,
-      originalName: origin[i].split('/').pop(),
-      remixName:    remix[i].split('/').pop(),
+      // Labels intended for the UI. We deliberately avoid exposing real file names when generic=true.
+      originalLabel,
+      remixLabel,
     });
   }
   return pairs;
@@ -125,14 +129,17 @@ export default {
       const originBase = `${url.origin}/r2`;
       const remixBase  = `${url.origin}/r2`;
 
-      const pairs = buildPairs(originals, remixes, originBase, remixBase);
+      const pairs = buildPairs(originals, remixes, originBase, remixBase, { generic: true });
 
-      // Build bank arrays for the UI (include names and resolved urls)
-      const toArr = (keys) => keys.map(k => ({ name: k.split('/').pop(), url: `${url.origin}/r2/${encodeURIComponent(k)}` }));
+      // Build bank arrays for the UI. Use generic labels so real track names are not exposed on the frontend.
+      const toArr = (keys, label) => keys.map((k, i) => ({
+        name: `${label} ${String(i+1).padStart(2,'0')}`,
+        url: `${url.origin}/r2/${encodeURIComponent(k)}`,
+      }));
       const payload = {
-        originals: toArr(originals),
-        remixes: toArr(remixes),
-        pairs
+        originals: toArr(originals, 'Original'),
+        remixes: toArr(remixes, 'Remix'),
+        pairs,
       };
 
       if (shuffle && pairs.length > 1) {
