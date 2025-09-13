@@ -1,0 +1,7 @@
+name = "remix-exp"
+main = "worker.js"
+compatibility_date = "2024-06-20"
+
+[[r2_buckets]]
+binding = "AUDIO"
+bucket_name = "audio"
