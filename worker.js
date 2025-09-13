@@ -45,6 +45,83 @@ function byLeadingNumberThenName(a, b) {
   }
   return natSort(a, b);
 }
+function extractNum(name = '') {
+  // leading number like "18. Something", "02 - Title", "003_Title"
+  const m = String(name).match(/^\s*(\d{1,4})[.\-_ ]?/);
+  return m ? parseInt(m[1], 10) : null;
+}
+function normalizeStem(s = '') {
+  // strip extension
+  s = s.replace(/\.[a-z0-9]{2,5}$/i, '');
+  // remove common remix markers and brackets
+  s = s.replace(/\bremix\b/ig, '')
+       .replace(/\bfwea[-\s]?go\b/ig, '')
+       .replace(/\bjit\b/ig, '')
+       .replace(/\(.*?\)|\[.*?\]|\{.*?\}/g, '');
+  // collapse punctuation/whitespace and diacritics
+  s = s.toLowerCase()
+       .normalize('NFD').replace(/\p{Diacritic}+/gu,'')
+       .replace(/[^a-z0-9]+/g, ' ')
+       .trim()
+       .replace(/\s+/g, ' ');
+  return s;
+}
+function bestStemKey(key) {
+  const base = key.split('/').pop() || key;
+  return normalizeStem(base);
+}
+async function buildAutoPairsFromR2(AUDIO, oPrefix = 'originals/', rPrefix = 'remixes/') {
+  const originals = (await listPrefix(AUDIO, oPrefix)).filter(k => !k.endsWith('/')).sort(natSort);
+  const remixes   = (await listPrefix(AUDIO, rPrefix)).filter(k => !k.endsWith('/')).sort(natSort);
+
+  // Index by leading number
+  const oByNum = new Map();
+  const rByNum = new Map();
+  for (const k of originals) {
+    const n = extractNum(k.split('/').pop() || k);
+    if (n != null && !oByNum.has(n)) oByNum.set(n, k);
+  }
+  for (const k of remixes) {
+    const n = extractNum(k.split('/').pop() || k);
+    if (n != null && !rByNum.has(n)) rByNum.set(n, k);
+  }
+
+  const usedO = new Set();
+  const usedR = new Set();
+  const pairs = [];
+
+  // 1) Pair by matching leading number
+  const nums = new Set([...oByNum.keys(), ...rByNum.keys()]);
+  for (const n of [...nums].sort((a,b)=>a-b)) {
+    const o = oByNum.get(n);
+    const r = rByNum.get(n);
+    if (o && r) { pairs.push([o, r]); usedO.add(o); usedR.add(r); }
+  }
+
+  // 2) Stem-based fuzzy matching for leftovers
+  const oLeft = originals.filter(k => !usedO.has(k));
+  const rLeft = remixes.filter(k => !usedR.has(k));
+  const rLeftByStem = new Map();
+  for (const r of rLeft) rLeftByStem.set(bestStemKey(r), r);
+  for (const o of oLeft) {
+    const s = bestStemKey(o);
+    if (rLeftByStem.has(s)) {
+      const r = rLeftByStem.get(s);
+      pairs.push([o, r]);
+      usedR.add(r);
+      rLeftByStem.delete(s);
+    }
+  }
+
+  // 3) Any remaining: pair in natural order
+  const rRemain = remixes.filter(k => !usedR.has(k));
+  const oRemain = originals.filter(k => !usedO.has(k));
+  const len = Math.min(oRemain.length, rRemain.length);
+  for (let i = 0; i < len; i++) pairs.push([oRemain[i], rRemain[i]]);
+
+  return pairs;
+}
+
 function buildPairs(origin, remix, originBase, remixBase, { generic=true } = {}) {
   const len = Math.min(origin.length, remix.length);
   const pairs = [];
@@ -126,68 +203,86 @@ export default {
     if (pathname === '/playlist') {
       if (!env.AUDIO) return json(request, { error: 'R2 not configured' }, 500);
 
-      // Optional query params:
-      const oPrefix = searchParams.get('originals') || 'originals/';
-      const rPrefix = searchParams.get('remixes')   || 'remixes/';
-      const shuffle = ['1','true','yes'].includes((searchParams.get('shuffle')||'').toLowerCase());
+      const noStore = { 'Cache-Control': 'no-store' };
+      const forceAuto = (searchParams.get('mode') || '').toLowerCase() === 'auto';
+      const normalizePair = (p, base) => {
+        const fix = (u) => {
+          if (!u) return u;
+          // accept already-signed/absolute, /r2/<key>, or raw keys like originals/.. / remixes/..
+          try {
+            const asUrl = new URL(u);
+            return asUrl.toString();
+          } catch (_) {
+            // not a full URL
+          }
+          if (u.startsWith('/r2/')) return u; // already worker-proxied path
+          if (u.startsWith('originals/') || u.startsWith('remixes/')) {
+            return `/r2/${encodeURIComponent(u)}`;
+          }
+          // fallback: leave as-is
+          return u;
+        };
+        return {
+          title: p.title || '',
+          originalLabel: p.originalLabel || 'Original',
+          remixLabel: p.remixLabel || 'Remix',
+          originalUrl: fix(p.originalUrl),
+          remixUrl: fix(p.remixUrl),
+        };
+      };
 
-      // Try playlist.json first (supports two shapes):
-      //  A) { pairs: [{ originalUrl, remixUrl, title? }...] }
-      //  B) { originals: [{name,url}...], remixes: [{name,url}...], pairs?: [...] }
-      const manifestObj = await env.AUDIO.get('playlist.json');
+      // Try playlist.json from R2 root first (source of truth)
+      const manifestObj = forceAuto ? null : await env.AUDIO.get('playlist.json');
       if (manifestObj) {
         try {
           const txt = await manifestObj.text();
           const parsed = JSON.parse(txt);
-          // Pass-through if pairs provided
           if (Array.isArray(parsed.pairs) && parsed.pairs.length) {
-            return json(request, parsed);
+            // Normalize and return only the pairs (do not auto-list or sort)
+            const base = new URL(request.url).origin;
+            const pairs = parsed.pairs.map((p) => normalizePair(p, base));
+            return new Response(JSON.stringify({ pairs }), { status: 200, headers: { ...corsHeaders(request), 'Content-Type': 'application/json', ...noStore } });
           }
-          if (Array.isArray(parsed.originals) || Array.isArray(parsed.remixes)) {
-            // Ensure arrays exist even if one side missing
-            return json(request, {
-              originals: parsed.originals || [],
-              remixes: parsed.remixes || [],
-              pairs: Array.isArray(parsed.pairs) ? parsed.pairs : [],
-            });
+          if (Array.isArray(parsed.originals) && Array.isArray(parsed.remixes)) {
+            // If a bank-style manifest was saved, pair by index deterministically
+            const len = Math.min(parsed.originals.length, parsed.remixes.length);
+            const base = new URL(request.url).origin;
+            const pairs = [];
+            for (let i = 0; i < len; i++) {
+              const o = parsed.originals[i];
+              const r = parsed.remixes[i];
+              pairs.push(normalizePair({
+                title: `Track ${String(i+1).padStart(2,'0')}`,
+                originalLabel: `Original ${String(i+1).padStart(2,'0')}`,
+                remixLabel: `Remix ${String(i+1).padStart(2,'0')}`,
+                originalUrl: o?.url || o,
+                remixUrl: r?.url || r,
+              }, base));
+            }
+            return new Response(JSON.stringify({ pairs }), { status: 200, headers: { ...corsHeaders(request), 'Content-Type': 'application/json', ...noStore } });
           }
-          // If malformed, fall through to auto mode
-        } catch {
-          // ignore and fall through
+          // malformed -> fall through to auto mode
+        } catch (_) {
+          // parse error -> fall through to auto mode
         }
       }
 
-      // Auto mode
-      const originals = (await listPrefix(env.AUDIO, oPrefix)).filter(k => !k.endsWith('/'));
-      const remixes   = (await listPrefix(env.AUDIO, rPrefix)).filter(k => !k.endsWith('/'));
-
-      originals.sort(byLeadingNumberThenName);
-      remixes.sort(byLeadingNumberThenName);
-
-      const originBase = `${url.origin}/r2`;
-      const remixBase  = `${url.origin}/r2`;
-
-      const pairs = buildPairs(originals, remixes, originBase, remixBase, { generic: true });
-
-      // Build bank arrays for the UI. Use generic labels so real track names are not exposed on the frontend.
-      const toArr = (keys, label) => keys.map((k, i) => ({
-        name: `${label} ${String(i+1).padStart(2,'0')}`,
-        url: `${url.origin}/r2/${encodeURIComponent(k)}`,
-      }));
-      const payload = {
-        originals: toArr(originals, 'Original'),
-        remixes: toArr(remixes, 'Remix'),
-        pairs,
-      };
-
-      if (shuffle && pairs.length > 1) {
-        // Simple deterministic shuffle by day to keep caching stable
-        const d = new Date();
-        const seed = Number(`${d.getFullYear()}${d.getMonth()+1}${d.getDate()}`);
-        payload.pairs = [...pairs].sort((a,b) => ((a.index * 9301 + seed) % 233280) - ((b.index * 9301 + seed) % 233280));
-      }
-
-      return json(request, payload);
+      // Auto mode (or fallback): build deterministically from R2 using number-then-stem pairing
+      const oPrefix = searchParams.get('originals') || 'originals/';
+      const rPrefix = searchParams.get('remixes')   || 'remixes/';
+      const urlBase = new URL(request.url).origin;
+      const autoPairs = await buildAutoPairsFromR2(env.AUDIO, oPrefix, rPrefix);
+      const pairs = autoPairs.map(([o, r], i) => {
+        const idx = String(i+1).padStart(2,'0');
+        return {
+          title: `Track ${idx}`,
+          originalLabel: `Original ${idx}`,
+          remixLabel: `Remix ${idx}`,
+          originalUrl: `${urlBase}/r2/${encodeURIComponent(o)}`,
+          remixUrl: `${urlBase}/r2/${encodeURIComponent(r)}`
+        };
+      });
+      return new Response(JSON.stringify({ pairs }), { status: 200, headers: { ...corsHeaders(request), 'Content-Type': 'application/json', ...noStore } });
     }
 
     // 2) Serve audio from R2: GET /r2/<key>
@@ -218,6 +313,7 @@ export default {
         const start = obj.range.offset;
         const end = start + obj.range.length - 1;
         headers['Content-Range'] = `bytes ${start}-${end}/${obj.size}`;
+        headers['Content-Length'] = String(obj.range.length);
         return new Response(isHead ? null : obj.body, { status: 206, headers });
       }
       return new Response(isHead ? null : obj.body, { status: 200, headers });
