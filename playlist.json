@@ -1,19 +1,18 @@
 {
   "pairs": [
     {
-      "title": "Track 01 – My Original",
-      "originalUrl": "/r2/originals/01-my-original.mp3",
-      "remixUrl": "/r2/remixes/01-my-original-remix.mp3"
+      "title": "Track 01",
+      "originalLabel": "Original 01",
+      "remixLabel": "Remix 01",
+      "originalUrl": "/r2/originals/DASH%20-%20Still%20Wonder.mp3",
+      "remixUrl": "/r2/remixes/18.%20DASH%20-%20Still%20Wonder%20(Fwea-Go%20Jit%20Remix).mp3"
     },
     {
-      "title": "Track 02 – Another One",
-      "originalUrl": "/r2/originals/02-another-one.mp3",
-      "remixUrl": "/r2/remixes/02-another-one-remix.mp3"
-    },
-    {
-      "title": "Track 03 – Heatwave",
-      "originalUrl": "/r2/originals/03-heatwave.mp3",
-      "remixUrl": "/r2/remixes/03-heatwave-remix.mp3"
+      "title": "Track 02",
+      "originalLabel": "Original 02",
+      "remixLabel": "Remix 02",
+      "originalUrl": "/r2/originals/Kilah%20Lache%20-%20Doing%20The%20Most%20(feat.%20Ice%20Billion%20Berg).mp3",
+      "remixUrl": "/r2/remixes/Remix%201.%20FweaGoJit_Came_Back_For_Good_Vibes.mp3"
     }
   ]
 }
