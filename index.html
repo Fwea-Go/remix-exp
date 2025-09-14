@@ -704,25 +704,6 @@ wireRange(cross,     applyCross);
 // Initial
 applyVolumes();
 
-// While pressed, mirror the value on move for browsers that don't fire input continuously
-let dragging = false;
-const startDrag = ()=> { dragging = true; };
-const endDrag = ()=> { if(dragging){ dragging = false; onChange(el.value); } };
-
-el.addEventListener('pointerdown', startDrag, { passive: true });
-window.addEventListener('pointerup', endDrag, { passive: true });
-
-// Also support classic mouse/touch as a fallback
-el.addEventListener('mousedown', startDrag, { passive: true });
-window.addEventListener('mouseup', endDrag, { passive: true });
-el.addEventListener('touchstart', startDrag, { passive: true });
-window.addEventListener('touchend', endDrag, { passive: true });
-
-const move = ()=> { if(dragging) onChange(el.value); };
-window.addEventListener('pointermove', move, { passive: true });
-window.addEventListener('mousemove', move, { passive: true });
-window.addEventListener('touchmove', move, { passive: true });
-
 // Use native range events; keep handlers passive so scrolling is not blocked
 ['input','change'].forEach(evt => cross?.addEventListener(evt, e => applyCross(e.target.value), { passive: true }));
 // Give the slider focus so iOS tracks the thumb properly
