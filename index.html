@@ -175,7 +175,7 @@
     <!-- Master volume -->
     <div class="master-volume-container">
       <span class="master-volume-label">Master Volume</span>
-      <input type="range" id="master-volume" min="0" max="1" step="0.01" value="1" style="width:320px;accent-color:#00ffaa;height:8px" />
+      <input aria-label="Master Volume" type="range" id="master-volume" min="0" max="1" step="0.01" value="1" style="width:320px;accent-color:#00ffaa;height:8px" />
     </div>
 
     <!-- Stacked waveforms -->
@@ -250,7 +250,7 @@
     <!-- Crossfader -->
     <div class="crossfader-container">
       <span class="crossfader-label original">Original</span>
-      <input type="range" id="crossfade" min="0" max="1" step="0.01" value="0.5" class="crossfader-slider" />
+      <input aria-label="Crossfader" type="range" id="crossfade" min="0" max="1" step="0.01" value="0.5" class="crossfader-slider" />
       <span class="crossfader-label remix">Remix</span>
     </div>
 
@@ -265,36 +265,26 @@
 
   <script>
     // ---- Config (EDIT THESE) ----
-    // If you have a Worker at https://YOUR_WORKER.example.workers.dev use that origin.
     const WORKER_BASE_URL = 'https://remix-exp-backend.fweago-flavaz.workers.dev';
-    // NOTE: /playlist is now called with `?mode=auto` so the Worker lists R2 `originals/` and `remixes/` with signed/proxied URLs and CORS.
-    const PRICE_IDS = {
-      // Paste your real Stripe Price IDs here:
-      // standard: 'price_...', creator: 'price_...', express: 'price_...', clean: 'price_...'
-    };
+    const PRICE_IDS = {};
     const PAYMENT_LINKS = {
-      standard: 'https://buy.stripe.com/00wcN69HP9aj3A62vyfbq0a', // $250 Standard
-      creator:  'https://buy.stripe.com/aFa4gAbPXfyH9Yu6LOfbq0b', // $500 Creator (same link provided)
-      express:  'https://buy.stripe.com/3cI6oIg6d86f2w2b24fbq0c', // $1000 Express
-      clean:    'https://buy.stripe.com/28E3cw8DLdqz4Ea7PSfbq0d'  // $175 Clean Version Edit
+      standard: 'https://buy.stripe.com/00wcN69HP9aj3A62vyfbq0a',
+      creator:  'https://buy.stripe.com/aFa4gAbPXfyH9Yu6LOfbq0b',
+      express:  'https://buy.stripe.com/3cI6oIg6d86f2w2b24fbq0c',
+      clean:    'https://buy.stripe.com/28E3cw8DLdqz4Ea7PSfbq0d'
     };
-
-    // push links into the buttons’ data-link attrs so they’re clickable even with JS-disabled copy
     window.addEventListener('DOMContentLoaded', ()=>{
       const map = {standard:'standard',creator:'creator',express:'express',clean:'clean'};
       Object.entries(map).forEach(([key,plan])=>{
         const btn = document.querySelector(`[data-plan="${plan}"]`);
         if(btn && PAYMENT_LINKS[key]) btn.setAttribute('data-link', PAYMENT_LINKS[key]);
       });
-    });
-
-    const PLAN_LABEL = {
-      standard: 'Book a Remix — $250 (Standard)',
-      creator: 'Creator Remix — $500',
-      express: 'Express Remix — $1000',
-      clean: 'Clean Version Edit — $175'
-    };
-    window.addEventListener('DOMContentLoaded', ()=>{
+      const PLAN_LABEL = {
+        standard: 'Book a Remix — $250 (Standard)',
+        creator: 'Creator Remix — $500',
+        express: 'Express Remix — $1000',
+        clean: 'Clean Version Edit — $175'
+      };
       document.querySelectorAll('[data-plan]').forEach(btn=>{
         const plan = btn.getAttribute('data-plan');
         if(PLAN_LABEL[plan]) btn.setAttribute('title', PLAN_LABEL[plan]);
@@ -581,8 +571,6 @@
     }
 
     document.querySelectorAll('[data-plan]').forEach(btn=> btn.addEventListener('click', ()=> book(btn.getAttribute('data-plan'), btn)));
-
-    // Allow keyboard activation (Enter/Space) for the booking buttons
     document.querySelectorAll('[data-plan]').forEach(btn=>{
       btn.setAttribute('role','link');
       btn.setAttribute('tabindex','0');
