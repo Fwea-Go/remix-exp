@@ -36,9 +36,27 @@
       /* Keep desktop feel in landscape: side-by-side lists */
       .playlist-row{flex-direction:row}
       .playlist-section{min-width:45vw}
-      .songbank{max-height:40vh}
-      .waveform-heartbeat{height:var(--wf-h-sm)}
-      .crossfader-slider{width:80vw}
+      .songbank{max-height:42vh}
+      .waveform-heartbeat{height:78px}
+      .crossfader-slider{width:78vw}
+    }
+    /* Very small-height landscape (e.g., iPhone 13/14 landscape) */
+    @media (max-height: 420px) and (orientation: landscape) {
+      .player-boundary{padding:1rem .85rem;border-radius:1.25rem;max-width:100vw;margin:1rem auto}
+      .playlist-row{gap:1rem;margin-bottom:1rem}
+      .playlist-section{min-width:42vw;padding:0.9rem 0.75rem}
+      .playlist-title{font-size:1.25rem;margin-bottom:0.5rem}
+      .songbank{max-height:30vh}
+      .waveform-stack{gap:0.9rem;margin:0.75rem 0}
+      .waveform-heartbeat{height:66px}
+      .crossfader-container{margin-top:0.4rem;margin-bottom:0.2rem}
+      .crossfader-slider{width:70vw;height:28px}
+      #transport{gap:0.75rem}
+      #transport svg{width:28px;height:28px}
+      #transport .rounded-full{padding:0.55rem}
+      .master-volume-container{margin-bottom:0.6rem}
+      input[type=range].volume{width:160px;height:26px}
+      .timebar{font-size:.72rem;right:10px;top:6px}
     }
     @media(min-width:901px){.waveform-heartbeat{height:var(--wf-h-lg)}}
     body{background:linear-gradient(135deg,#232526 0%,#414345 100%);min-height:100vh;font-family:'Segoe UI',sans-serif;color:#fff}
@@ -438,7 +456,7 @@
     }
 
     function createWaveform(containerSelector, color, timelineSelector){
-      const waveH = window.matchMedia('(max-width: 600px)').matches ? 84 : 120;
+      const waveH = (window.matchMedia('(max-height: 420px) and (orientation: landscape)').matches) ? 66 : (window.matchMedia('(max-width: 600px)').matches ? 84 : 120);
       const ws = WaveSurfer.create({
         container: containerSelector,
         waveColor: 'rgba(255,255,255,0.08)',   // faint base so background art shines through
@@ -497,8 +515,11 @@
 
     function debounce(fn, ms=200){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
     const adjustWaveHeights = debounce(()=>{
-      const h = window.matchMedia('(max-width: 600px)').matches ? 84 : 120;
-      try{ originalWave?.setOptions?.({height:h}); remixWave?.setOptions?.({height:h}); }catch(e){ /* wavesurfer v7 fallback; rebuild if needed */ }
+      let h = 120;
+      const isShortLandscape = window.matchMedia('(max-height: 420px) and (orientation: landscape)').matches;
+      const isSmall = window.matchMedia('(max-width: 600px)').matches;
+      if(isShortLandscape) h = 66; else if(isSmall) h = 84; else h = 120;
+      try{ originalWave?.setOptions?.({height:h}); remixWave?.setOptions?.({height:h}); }catch(e){}
     }, 150);
     window.addEventListener('resize', adjustWaveHeights, {passive:true});
     window.addEventListener('orientationchange', adjustWaveHeights, {passive:true});
