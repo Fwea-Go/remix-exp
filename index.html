@@ -220,6 +220,7 @@
     // ---- Config (EDIT THESE) ----
     // If you have a Worker at https://YOUR_WORKER.example.workers.dev use that origin.
     const WORKER_BASE_URL = 'https://remix-exp-backend.fweago-flavaz.workers.dev';
+    // NOTE: /playlist is now called with `?mode=auto` so the Worker lists R2 `originals/` and `remixes/` with signed/proxied URLs and CORS.
     const PRICE_IDS = {
       // Paste your real Stripe Price IDs here:
       // standard: 'price_...', creator: 'price_...', express: 'price_...', clean: 'price_...'
@@ -258,14 +259,26 @@
       const base = WORKER_BASE_URL?.replace(/\/+$/,'');
       if(!base) return null;
       try{
-        const resp = await fetch(`${base}/playlist`, { headers: { 'Accept': 'application/json' } });
-        if(!resp.ok) return null;
+        const url = `${base}/playlist?mode=auto`;
+        const resp = await fetch(url, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          mode: 'cors',
+          credentials: 'omit'
+        });
+        if(!resp.ok) throw new Error(`Playlist HTTP ${resp.status}`);
         const data = await resp.json();
+        if(Array.isArray(data?.pairs) && data.pairs.length){
+          return data;
+        }
         if(Array.isArray(data?.originals) && Array.isArray(data?.remixes)){
           return data;
         }
-      }catch(e){}
-      return null;
+        throw new Error('Playlist shape not recognized');
+      }catch(e){
+        console.warn('Playlist fetch failed:', e);
+        return null;
+      }
     }
 
     let originals = [];
@@ -525,11 +538,12 @@
       });
     });
 
-    // Init – prefer pairs if available, fallback to originals/remixes, then demo
+    // Init – only use demo if demo=1 param is present
     (async ()=>{
       const fromBackend = await loadPlaylistsFromBackend();
-      if (fromBackend && Array.isArray(fromBackend.pairs) && fromBackend.pairs.length) {
-        // Build banks from pairs to guarantee 1:1 mapping by index.
+      const params = new URLSearchParams(location.search);
+      const useDemo = params.get('demo') === '1';
+      if (!useDemo && fromBackend && Array.isArray(fromBackend.pairs) && fromBackend.pairs.length) {
         originals = fromBackend.pairs.map((p, i) => ({
           name: p.originalLabel || `Original ${String(i+1).padStart(2,'0')}`,
           url:  p.originalUrl
@@ -538,7 +552,7 @@
           name: p.remixLabel || `Remix ${String(i+1).padStart(2,'0')}`,
           url:  p.remixUrl
         }));
-      } else if (fromBackend && Array.isArray(fromBackend.originals) && Array.isArray(fromBackend.remixes)) {
+      } else if (!useDemo && fromBackend && Array.isArray(fromBackend.originals) && Array.isArray(fromBackend.remixes)) {
         originals = fromBackend.originals;
         remixes   = fromBackend.remixes;
       } else {
