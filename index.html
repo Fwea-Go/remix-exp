@@ -380,23 +380,45 @@
       express:  'https://buy.stripe.com/3cI6oIg6d86f2w2b24fbq0c',
       clean:    'https://buy.stripe.com/28E3cw8DLdqz4Ea7PSfbq0d'
     };
-    window.addEventListener('DOMContentLoaded', ()=>{
-      const map = {standard:'standard',creator:'creator',express:'express',clean:'clean'};
-      Object.entries(map).forEach(([key,plan])=>{
-        const btn = document.querySelector(`[data-plan="${plan}"]`);
-        if(btn && PAYMENT_LINKS[key]) btn.setAttribute('data-link', PAYMENT_LINKS[key]);
-      });
-      const PLAN_LABEL = {
-        standard: 'Book a Remix — $250 (Standard)',
-        creator: 'Creator Remix — $500',
-        express: 'Express Remix — $1000',
-        clean: 'Clean Version Edit — $175'
-      };
-      document.querySelectorAll('[data-plan]').forEach(btn=>{
-        const plan = btn.getAttribute('data-plan');
-        if(PLAN_LABEL[plan]) btn.setAttribute('title', PLAN_LABEL[plan]);
-      });
-    });
+function initPlanButtons(){
+  const map = {standard:'standard',creator:'creator',express:'express',clean:'clean'};
+  Object.entries(map).forEach(([key,plan])=>{
+    const btn = document.querySelector(`[data-plan="${plan}"]`);
+    if(btn && PAYMENT_LINKS[key]) btn.setAttribute('data-link', PAYMENT_LINKS[key]);
+  });
+  const PLAN_LABEL = {
+    standard: 'Book a Remix — $250 (Standard)',
+    creator: 'Creator Remix — $500',
+    express: 'Express Remix — $1000',
+    clean: 'Clean Version Edit — $175'
+  };
+  document.querySelectorAll('[data-plan]').forEach(btn=>{
+    const plan = btn.getAttribute('data-plan');
+    if(PLAN_LABEL[plan]) btn.setAttribute('title', PLAN_LABEL[plan]);
+    btn.setAttribute('role','link');
+    btn.setAttribute('tabindex','0');
+  });
+}
+// Run on initial load and when returning from Stripe via bfcache
+window.addEventListener('DOMContentLoaded', initPlanButtons);
+window.addEventListener('pageshow', (e)=>{ if (e.persisted) initPlanButtons(); });
+
+// Delegate clicks/keyboard to be resilient after back/forward cache restores
+document.addEventListener('click', (e)=>{
+  const btn = e.target.closest('[data-plan]');
+  if(!btn) return;
+  e.preventDefault();
+  const plan = btn.getAttribute('data-plan');
+  book(plan, btn);
+});
+document.addEventListener('keydown', (e)=>{
+  if(e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+  const btn = e.target.closest && e.target.closest('[data-plan]');
+  if(!btn) return;
+  e.preventDefault();
+  const plan = btn.getAttribute('data-plan');
+  book(plan, btn);
+});
 
     // ---- Demo Playlists (replace with your tracks/URLs) ----
     async function loadPlaylistsFromBackend(){
@@ -902,19 +924,11 @@ applyVolumes();
     function openCheckout(url){
       if(!url) return;
       try {
-        // If we're inside an iframe, try to navigate the top window
-        if (window.top && window.top !== window) {
-          window.top.location.href = url;
-          return;
-        }
-      } catch (e) {
-        // Cross-origin access throws; we'll fall back to a new tab
-      }
-      // Fallback: open a new tab
-      const w = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!w) {
-        // Last resort: navigate current window
-        window.location.href = url;
+        // Prefer in-tab navigation for reliability after back navigation.
+        window.location.assign(url);
+      } catch (_) {
+        // Fallbacks
+        try { window.location.href = url; } catch(__) {}
       }
     }
 
@@ -949,17 +963,6 @@ applyVolumes();
       alert('Add a Stripe Payment Link (data-link or PAYMENT_LINKS) or set WORKER_BASE_URL + PRICE_IDS to enable checkout.');
     }
 
-    document.querySelectorAll('[data-plan]').forEach(btn=> btn.addEventListener('click', ()=> book(btn.getAttribute('data-plan'), btn)));
-    document.querySelectorAll('[data-plan]').forEach(btn=>{
-      btn.setAttribute('role','link');
-      btn.setAttribute('tabindex','0');
-      btn.addEventListener('keydown', (e)=>{
-        if(e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar'){
-          e.preventDefault();
-          book(btn.getAttribute('data-plan'), btn);
-        }
-      });
-    });
 
     // Init – only use demo if demo=1 param is present
     (async ()=>{
