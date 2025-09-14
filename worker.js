@@ -1,14 +1,15 @@
 // worker.js — Audio backend (R2 + proxy) with playlist endpoint
 
 function corsHeaders(req) {
-  const origin = req.headers.get('Origin') || '*';
+  const acrh = req.headers.get('Access-Control-Request-Headers');
   return {
-    'Access-Control-Allow-Origin': origin,
-    'Vary': 'Origin',
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Range, Cache-Control',
-    'Access-Control-Expose-Headers':
-      'Content-Length, Content-Range, Accept-Ranges, Content-Type, ETag, Last-Modified',
+    'Access-Control-Allow-Headers': acrh || '*',
+    'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Type, ETag, Last-Modified',
+    'Cross-Origin-Resource-Policy': 'cross-origin',
+    'Timing-Allow-Origin': '*',
+    'Vary': 'Origin, Access-Control-Request-Headers'
   };
 }
 const json = (req, data, status=200) =>
@@ -189,7 +190,7 @@ export default {
 
     // CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders(request) });
+      return new Response(null, { status: 204, headers: corsHeaders(request) });
     }
 
     // Health
@@ -241,6 +242,13 @@ export default {
             // Normalize and return only the pairs (do not auto-list or sort)
             const base = new URL(request.url).origin;
             const pairs = parsed.pairs.map((p) => normalizePair(p, base));
+            const doShuffle = ['1','true','yes'].includes((searchParams.get('shuffle')||'').toLowerCase());
+            if (doShuffle) {
+              for (let i = pairs.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
+              }
+            }
             return new Response(JSON.stringify({ pairs }), { status: 200, headers: { ...corsHeaders(request), 'Content-Type': 'application/json', ...noStore } });
           }
           if (Array.isArray(parsed.originals) && Array.isArray(parsed.remixes)) {
@@ -258,6 +266,13 @@ export default {
                 originalUrl: o?.url || o,
                 remixUrl: r?.url || r,
               }, base));
+            }
+            const doShuffle = ['1','true','yes'].includes((searchParams.get('shuffle')||'').toLowerCase());
+            if (doShuffle) {
+              for (let i = pairs.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
+              }
             }
             return new Response(JSON.stringify({ pairs }), { status: 200, headers: { ...corsHeaders(request), 'Content-Type': 'application/json', ...noStore } });
           }
@@ -282,6 +297,13 @@ export default {
           remixUrl: `${urlBase}/r2/${encodeURIComponent(r)}`
         };
       });
+      const doShuffle = ['1','true','yes'].includes((searchParams.get('shuffle')||'').toLowerCase());
+      if (doShuffle) {
+        for (let i = pairs.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
+        }
+      }
       return new Response(JSON.stringify({ pairs }), { status: 200, headers: { ...corsHeaders(request), 'Content-Type': 'application/json', ...noStore } });
     }
 
