@@ -545,6 +545,17 @@
         const c = document.querySelector(`${containerSelector} canvas`);
         if(c){ c.style.mixBlendMode='screen'; c.style.opacity='0.95'; c.style.pointerEvents = 'auto'; }
       });
+      // Ensure media element is unmuted and CORS-enabled (fixes iOS no-audio cases)
+      ws.on('ready', ()=>{
+        try{
+          const el = (ws.getMediaElement && ws.getMediaElement()) ? ws.getMediaElement() : null;
+          if (el) {
+            try { el.muted = false; } catch(_){}
+            try { el.crossOrigin = 'anonymous'; } catch(_){}
+            try { el.playsInline = true; } catch(_){}
+          }
+        }catch(_){}
+      });
       // Safety: reapply volumes on ready
       ws.on('ready', ()=> applyVolumes());
       return ws;
@@ -685,11 +696,32 @@ if (window.visualViewport){
         ws && ws.on && ws.on('ready', onReady);
       });
     }
-    document.getElementById('play-btn').onclick = async ()=>{
-      await unlockAudio();
-      await ensureDecksReady();
-      await Promise.all([ playWhenReady(originalWave), playWhenReady(remixWave) ]);
-    };
+
+    // Gesture-safe immediate play for iOS: do not await; attach one-time 'ready' if needed
+    function playNow(){
+      unlockAudio(); // kick the audio context right away
+      if (!originalWave || !remixWave) {
+        // prepare current pair synchronously
+        selectPair((typeof currentIndex==='number' && currentIndex>=0) ? currentIndex : 0);
+      }
+      const tryPlay = (ws)=>{
+        if (!ws) return;
+        try{
+          // If already decoded, play immediately
+          if (typeof ws.getDuration === 'function' && ws.getDuration() > 0) {
+            ws.play();
+          } else {
+            // One-time play as soon as it becomes ready
+            const once = ()=>{ try{ ws.un && ws.un('ready', once);}catch(_){ } try{ ws.play(); }catch(_){ } };
+            ws.on && ws.on('ready', once);
+          }
+        }catch(_){}
+      };
+      tryPlay(originalWave);
+      tryPlay(remixWave);
+    }
+
+    document.getElementById('play-btn').onclick = ()=>{ playNow(); };
     document.getElementById('pause-btn').onclick = ()=>{ originalWave?.pause(); remixWave?.pause(); };
     document.getElementById('stop-btn').onclick = ()=>{
       originalWave?.stop(); remixWave?.stop();
@@ -714,7 +746,7 @@ if (window.visualViewport){
           e.preventDefault();
           const anyPlaying = (originalWave && originalWave.isPlaying && originalWave.isPlaying()) || (remixWave && remixWave.isPlaying && remixWave.isPlaying());
           if(anyPlaying){ originalWave?.pause(); remixWave?.pause(); }
-          else { originalWave?.play(); remixWave?.play(); }
+          else { playNow(); }
         }
       }
     });
