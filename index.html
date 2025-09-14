@@ -363,10 +363,10 @@
 
     <!-- Booking -->
     <section class="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6">
-      <button class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#00ffaa" data-plan="standard" data-link="">Book a Remix — <b>$250</b> (Standard)</button>
-      <button class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#06b6d4" data-plan="creator" data-link="">Creator Remix — <b>$500</b></button>
-      <button class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#818cf8" data-plan="express" data-link="">Express Remix — <b>$1000</b></button>
-      <button class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#fbbf24" data-plan="clean" data-link="">Clean Version Edit — <b>$175</b></button>
+      <button type="button" class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#00ffaa" data-plan="standard" data-link="">Book a Remix — <b>$250</b> (Standard)</button>
+      <button type="button" class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#06b6d4" data-plan="creator" data-link="">Creator Remix — <b>$500</b></button>
+      <button type="button" class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#818cf8" data-plan="express" data-link="">Express Remix — <b>$1000</b></button>
+      <button type="button" class="neon-btn rounded-2xl px-6 py-5 text-xl text-center" style="color:#fbbf24" data-plan="clean" data-link="">Clean Version Edit — <b>$175</b></button>
     </section>
   </div>
 
@@ -923,13 +923,30 @@ applyVolumes();
     // Force-open Stripe checkout outside of sandboxed iframes (Wix/embeds)
     function openCheckout(url){
       if(!url) return;
+
+      // 1) If we are embedded, try to navigate the top window first
       try {
-        // Prefer in-tab navigation for reliability after back navigation.
-        window.location.assign(url);
-      } catch (_) {
-        // Fallbacks
-        try { window.location.href = url; } catch(__) {}
-      }
+        if (window.top && window.top !== window) {
+          window.top.location.href = url;
+          return;
+        }
+      } catch (_) { /* cross-origin; continue */ }
+
+      // 2) Programmatic <a> click tends to bypass popup blockers
+      try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.rel = 'noopener noreferrer';
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return;
+      } catch (_) { /* continue */ }
+
+      // 3) Same-tab fallback
+      try { window.location.assign(url); }
+      catch(__) { try { window.location.href = url; } catch(___) {} }
     }
 
     // Booking buttons – Cloudflare Worker friendly, with Payment Link fallback
