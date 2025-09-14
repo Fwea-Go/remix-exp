@@ -1,4 +1,4 @@
-name = "remix-exp"
+name = "remix-exp-backend"
 main = "worker.js"
 compatibility_date = "2024-06-20"
 
