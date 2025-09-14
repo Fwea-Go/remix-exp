@@ -512,7 +512,7 @@
         responsive: true,
         cursorColor: 'rgba(255,255,255,.85)',
         backend: 'WebAudio',
-        audioContext: getAudioCtx(),
+        audioContext: (getAudioCtx() || undefined),
       });
 
       // Register Volume plugin if available and remember per deck
@@ -557,7 +557,27 @@
 
     function destroyWave(w){ if(w){ try{w.destroy()}catch(e){} } }
 
+    function onceReady(ws){
+  return new Promise((resolve)=>{
+    if (!ws) { resolve(); return; }
+    try {
+      if (typeof ws.getDuration === 'function' && ws.getDuration() > 0) { resolve(); return; }
+    } catch(_) {}
+    const onReady = ()=>{ try{ ws.un && ws.un('ready', onReady); }catch(_){} resolve(); };
+    ws.on('ready', onReady);
+  });
+}
+
     function addLoop(w){ if(!w) return; w.un('finish'); w.on('finish', ()=>{ if(isLooping) w.play(0); }); }
+
+async function ensureDecksReady(){
+  // Create initial pair if needed
+  if (!originalWave || !remixWave) {
+    selectPair((typeof currentIndex==='number' && currentIndex>=0) ? currentIndex : 0);
+  }
+  // Wait for both to decode
+  await Promise.all([ onceReady(originalWave), onceReady(remixWave) ]);
+}
 
 function applyVolumes(){
   const x = Math.min(1, Math.max(0, parseFloat(document.getElementById('crossfade').value) || 0));
@@ -647,23 +667,26 @@ if (window.visualViewport){
 
     // Transport handlers
     function playWhenReady(ws){
-      return new Promise((resolve)=>{
-        if(!ws){ resolve(); return; }
-        const tryPlay = ()=>{ try{ ws.play(); }catch(_){ } resolve(); };
-        // If already decoded or duration known, just play
-        if (typeof ws.getDuration === 'function' && ws.getDuration() > 0){
-          tryPlay();
-          return;
-        }
-        // Otherwise wait for ready once, then play
-        const onReady = ()=>{ ws.un && ws.un('ready', onReady); tryPlay(); };
-        ws.on('ready', onReady);
-      });
+  return new Promise(async (resolve)=>{
+    await unlockAudio();
+    const ctx = getAudioCtx();
+    if (ctx && ctx.state === 'suspended') {
+      try { await ctx.resume(); } catch(_) {}
     }
+    const go = ()=>{ try{ ws && ws.play && ws.play(); }catch(_){} resolve(); };
+    try {
+      if (ws && typeof ws.getDuration === 'function' && ws.getDuration() > 0) { go(); return; }
+    } catch(_) {}
+    const onReady = ()=>{ try{ ws.un && ws.un('ready', onReady); }catch(_){} setTimeout(go, 0); };
+    ws && ws.on && ws.on('ready', onReady);
+  });
+}
     document.getElementById('play-btn').onclick = async ()=>{
-      await unlockAudio();
-      await Promise.all([ playWhenReady(originalWave), playWhenReady(remixWave) ]);
-    };
+  await unlockAudio();
+  await ensureDecksReady();
+  try{ originalWave && originalWave.play(); }catch(_){}
+  try{ remixWave && remixWave.play(); }catch(_){}
+};
     document.getElementById('pause-btn').onclick = ()=>{ originalWave?.pause(); remixWave?.pause(); };
     document.getElementById('stop-btn').onclick = ()=>{
       originalWave?.stop(); remixWave?.stop();
@@ -869,7 +892,7 @@ applyVolumes();
       }
       renderPlaylists();
       document.getElementById('crossfade').value = 0.5; masterVolume = 1; applyVolumes();
-      if (originals.length && remixes.length) selectPair(0);
+      if (originals.length && remixes.length && (!originalWave || !remixWave)) selectPair(0);
     })();
   </script>
 </body>
