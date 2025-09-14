@@ -446,6 +446,7 @@
     ];
 
 let originalWave = null, remixWave = null;
+let __loadSeq = 0; // cancel/ignore late ready/play from older loads
     let isLooping = false;
     let masterVolume = 1;
     let currentIndex=0;
@@ -592,7 +593,31 @@ function setWsVolume(ws, vol){
       ws.on('timeupdate', t=>{ if(curEl) curEl.textContent = fmtTime(t); });
     }
 
-    function destroyWave(w){ if(w){ try{w.destroy()}catch(e){} } }
+    function destroyWave(w){
+      if(!w) return;
+      try {
+        // Stop WaveSurfer playback quickly
+        try{ w.un && w.un('finish'); }catch(_){}
+        try{ w.un && w.un('play'); }catch(_){}
+        try{ w.un && w.un('ready'); }catch(_){}
+        try{ w.stop && w.stop(); }catch(_){}
+        try{ w.pause && w.pause(); }catch(_){}
+        // Mute immediately to prevent bleed
+        try{ w.setVolume && w.setVolume(0); }catch(_){}
+        // If MediaElement backend, also stop the underlying <audio>
+        try{
+          const el = (typeof w.getMediaElement === 'function') ? w.getMediaElement() : null;
+          if (el) {
+            try{ el.pause(); }catch(_){}
+            try{ el.currentTime = 0; }catch(_){}
+            try{ el.src = ''; el.removeAttribute('src'); }catch(_){}
+            try{ el.load && el.load(); }catch(_){}
+          }
+        }catch(_){}
+      } catch(_){}
+      // Finally destroy the instance
+      try{ w.destroy(); }catch(_){}
+    }
 
     function onceReady(ws){
   return new Promise((resolve)=>{
@@ -659,39 +684,57 @@ if (window.visualViewport){
     }
 
     function selectPair(i){
+      // Bump sequence so any old 'ready' events are ignored
+      const mySeq = ++__loadSeq;
+
       // Clamp i to valid index
       const maxIdx = Math.min(originals.length, remixes.length) - 1;
       i = Math.max(0, Math.min(i, maxIdx));
       currentIndex = i;
-      // Capture if either deck was playing before destruction
-      const wasPlaying = (originalWave && originalWave.isPlaying && originalWave.isPlaying()) || (remixWave && remixWave.isPlaying && remixWave.isPlaying());
-      // Prewarm both tracks before loading into WaveSurfer
+
+      // Capture if decks were playing
+      const wasPlaying = (originalWave?.isPlaying?.() || remixWave?.isPlaying?.()) ? true : false;
+
+      // Hard stop + clean current decks to prevent overlap
+      try{ originalWave?.pause(); remixWave?.pause(); }catch(_){}
+      try{ originalWave?.stop(); remixWave?.stop(); }catch(_){}
+      applyVolumes(); // writes 0 if crossfade dictates, reduces bleed
+      destroyWave(originalWave);
+      destroyWave(remixWave);
+      originalWave = remixWave = null;
+
+      // Prewarm both tracks
       prewarm(originals[i]?.url || originals[0]?.url);
       prewarm(remixes[i]?.url || remixes[0]?.url);
+
       // Originals
-      destroyWave(originalWave);
       originalWave = createWaveform('#waveform-original', '#00ffaa', '#timeline-original', 'A', (originals[i]?.url || originals[0]?.url));
       originalWave.on('ready', ()=>{
+        if (mySeq !== __loadSeq) return; // stale
         addLoop(originalWave);
         applyVolumes();
-        if (wasPlaying) originalWave.play();
+        if (wasPlaying) { try{ originalWave.play(); }catch(_){} }
       });
-      originalWave.on('play', applyVolumes);
+      originalWave.on('play', ()=>{ if (mySeq === __loadSeq) applyVolumes(); });
+
       bindTimebars(originalWave, document.getElementById('curA'), document.getElementById('durA'));
+
       // Remixes
-      destroyWave(remixWave);
       remixWave = createWaveform('#waveform-remix', '#06b6d4', '#timeline-remix', 'B', (remixes[i]?.url || remixes[0]?.url));
       remixWave.on('ready', ()=>{
+        if (mySeq !== __loadSeq) return; // stale
         addLoop(remixWave);
         applyVolumes();
-        if (wasPlaying) remixWave.play();
+        if (wasPlaying) { try{ remixWave.play(); }catch(_){} }
       });
-      remixWave.on('play', applyVolumes);
+      remixWave.on('play', ()=>{ if (mySeq === __loadSeq) applyVolumes(); });
+
       bindTimebars(remixWave, document.getElementById('curB'), document.getElementById('durB'));
-      window.wsA = originalWave; window.wsB = remixWave;
-      // Sync transport
-      if(originalWave && originalWave.on) originalWave.on('play', syncPlay);
-      if(remixWave && remixWave.on) remixWave.on('play', syncPlay);
+
+      // Keep transport sync hooks
+      if (originalWave?.on) originalWave.on('play', syncPlay);
+      if (remixWave?.on) remixWave.on('play', syncPlay);
+
       highlightActive(i);
       applyVolumes();
     }
