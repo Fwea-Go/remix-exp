@@ -638,9 +638,12 @@ function applyVolumes(){
   const x = Math.min(1, Math.max(0, parseFloat(crossEl?.value) || 0));
   const m = Math.min(1, Math.max(0, masterVolume));
   const angle = x * Math.PI * 0.5; // equal-power law
-  const vA = Math.cos(angle) * m;   // Original deck gain
-  const vB = Math.sin(angle) * m;   // Remix deck gain
-
+  let vA = Math.cos(angle) * m;   // Original deck gain
+  let vB = Math.sin(angle) * m;   // Remix deck gain
+  // Hard mute near the extremes to prevent any bleed on iOS
+  const DEAD = 0.001;
+  if (vA < DEAD) vA = 0; else if (vA > 1 - DEAD) vA = 1;
+  if (vB < DEAD) vB = 0; else if (vB > 1 - DEAD) vB = 1;
   setWsVolume(originalWave, vA);
   setWsVolume(remixWave,   vB);
 }
@@ -835,33 +838,27 @@ function applyCross(v){
   applyVolumes();
 }
 
-// Generic range wiring that works well on iOS/Android/Desktop.
 function wireRange(el, onChange){
   if(!el) return;
   const apply = () => onChange(el.value);
-
-  // Smooth native updates
+  // Regular updates
   ['input','change'].forEach(evt => el.addEventListener(evt, apply, { passive:true }));
-
-  // Ensure the thumb has focus (iOS tracks better) and apply on grab
-  ['mousedown','pointerdown','touchstart'].forEach(evt => {
-    el.addEventListener(evt, () => { try{ el.focus(); }catch(_){} apply(); }, { passive:true });
-  });
-
-  // Pointer capture keeps updates flowing while dragging
+  // RAF loop while dragging for buttery-smooth updates on mobile
+  let dragging = false, rafId = null;
+  const tick = () => { if (!dragging) return; apply(); rafId = requestAnimationFrame(tick); };
   el.addEventListener('pointerdown', e => {
-    try { el.setPointerCapture(e.pointerId); } catch(_) {}
+    dragging = true; try{ el.setPointerCapture(e.pointerId); }catch(_){ }
+    try{ el.focus(); }catch(_){ }
+    apply();
+    rafId = requestAnimationFrame(tick);
   }, { passive:true });
-
-  // While dragging, mirror value even if 'input' is throttled
-  el.addEventListener('pointermove', e => {
-    if ((e.buttons & 1) || e.pressure > 0) apply();
-  }, { passive:true });
-
-  // Safety: make sure we apply once more at drag end
-  ['pointerup','pointercancel','touchend','mouseup'].forEach(evt => {
-    window.addEventListener(evt, apply, { passive:true });
-  });
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    apply();
+  };
+  ['pointerup','pointercancel','touchend','mouseup','blur'].forEach(evt => el.addEventListener(evt, stop, { passive:true }));
 }
 
 wireRange(masterVol, applyMasterVol);
@@ -869,11 +866,6 @@ wireRange(cross,     applyCross);
 
 // Initial
 applyVolumes();
-
-// Use native range events; keep handlers passive so scrolling is not blocked
-['input','change'].forEach(evt => cross?.addEventListener(evt, e => applyCross(e.target.value), { passive: true }));
-// Give the slider focus so iOS tracks the thumb properly
-['touchstart','pointerdown','mousedown'].forEach(evt => cross?.addEventListener(evt, e => e.target.focus(), { passive: true }));
 
     function setCrossfade(v){ /* hook: if you later want visuals tied to crossfader position */ }
 
