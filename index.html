@@ -460,21 +460,70 @@
     document.getElementById('master-volume').oninput = function(){ masterVolume=parseFloat(this.value); applyVolumes(); };
     document.getElementById('crossfade').oninput = applyVolumes;
 
+    // Force-open Stripe checkout outside of sandboxed iframes (Wix/embeds)
+    function openCheckout(url){
+      if(!url) return;
+      try {
+        // If we're inside an iframe, try to navigate the top window
+        if (window.top && window.top !== window) {
+          window.top.location.href = url;
+          return;
+        }
+      } catch (e) {
+        // Cross-origin access throws; we'll fall back to a new tab
+      }
+      // Fallback: open a new tab
+      const w = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!w) {
+        // Last resort: navigate current window
+        window.location.href = url;
+      }
+    }
+
     // Booking buttons – Cloudflare Worker friendly, with Payment Link fallback
     async function book(plan, btn){
       const linkAttr = btn?.getAttribute('data-link')||'';
       const direct = linkAttr || PAYMENT_LINKS[plan] || '';
-      if(direct){ window.location.href = direct; return; }
+      if(direct){
+        openCheckout(direct);
+        return;
+      }
       const priceId = PRICE_IDS[plan];
       const base = WORKER_BASE_URL?.replace(/\/+$/,'') || '';
       if(priceId && base){
-        try{ const resp = await fetch(`${base}/create-payment`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ type: plan, priceId })}); const data = await resp.json(); if(data?.url){ window.location.href = data.url; } else { throw new Error(data?.error||'Unknown error'); } }catch(e){ alert('Booking failed: '+e.message); }
+        try{
+          const resp = await fetch(`${base}/create-payment`,{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ type: plan, priceId })
+          });
+          const data = await resp.json();
+          if(data?.url){
+            openCheckout(data.url);
+          } else {
+            throw new Error(data?.error||'Unknown error');
+          }
+        }catch(e){
+          alert('Booking failed: '+e.message);
+        }
         return;
       }
       alert('Add a Stripe Payment Link (data-link or PAYMENT_LINKS) or set WORKER_BASE_URL + PRICE_IDS to enable checkout.');
     }
 
     document.querySelectorAll('[data-plan]').forEach(btn=> btn.addEventListener('click', ()=> book(btn.getAttribute('data-plan'), btn)));
+
+    // Allow keyboard activation (Enter/Space) for the booking buttons
+    document.querySelectorAll('[data-plan]').forEach(btn=>{
+      btn.setAttribute('role','link');
+      btn.setAttribute('tabindex','0');
+      btn.addEventListener('keydown', (e)=>{
+        if(e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar'){
+          e.preventDefault();
+          book(btn.getAttribute('data-plan'), btn);
+        }
+      });
+    });
 
     // Init – prefer pairs if available, fallback to originals/remixes, then demo
     (async ()=>{
