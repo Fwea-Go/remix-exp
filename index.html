@@ -503,9 +503,9 @@ let originalWave = null, remixWave = null;
 function createWaveform(containerSelector, color, timelineSelector, which, srcUrl){
   const waveH = (window.matchMedia('(max-height: 420px) and (orientation: landscape)').matches) ? 66 : (window.matchMedia('(max-width: 600px)').matches ? 84 : 120);
 
-  // Helper to actually create a WS instance with a chosen backend
+  // Builder that can create either backend and, for MediaElement, supplies a pre-configured <audio>
   const make = (backendName) => {
-    const ws = WaveSurfer.create({
+    const opts = {
       container: containerSelector,
       waveColor: 'rgba(255,255,255,0.08)',
       progressColor: color,
@@ -516,9 +516,24 @@ function createWaveform(containerSelector, color, timelineSelector, which, srcUr
       normalize: true,
       responsive: true,
       cursorColor: 'rgba(255,255,255,.85)',
-      backend: backendName,
-      audioContext: backendName === 'WebAudio' ? (getAudioCtx() || undefined) : undefined
-    });
+      backend: backendName
+    };
+
+    if (backendName === 'WebAudio') {
+      opts.audioContext = getAudioCtx() || undefined;
+    }
+
+    if (backendName === 'MediaElement') {
+      // IMPORTANT: create the media element up front so crossOrigin is set BEFORE src
+      const media = document.createElement('audio');
+      try { media.crossOrigin = 'anonymous'; } catch(_) {}
+      try { media.playsInline = true; } catch(_) {}
+      try { media.preload = 'auto'; } catch(_) {}
+      try { media.muted = false; } catch(_) {}
+      opts.media = media;
+    }
+
+    const ws = WaveSurfer.create(opts);
 
     // Attach optional timeline
     try{
@@ -531,7 +546,7 @@ function createWaveform(containerSelector, color, timelineSelector, which, srcUr
           style: { fontSize: '10px' }
         }));
       }
-    }catch(e){ /* ignore plugin issues */ }
+    }catch(e){ /* plugin optional */ }
 
     ws.on('ready', ()=>{
       const c = document.querySelector(`${containerSelector} canvas`);
@@ -539,47 +554,43 @@ function createWaveform(containerSelector, color, timelineSelector, which, srcUr
       try{
         const el = (ws.getMediaElement && ws.getMediaElement()) ? ws.getMediaElement() : null;
         if (el) {
-          try { el.muted = false; } catch(_){}
-          try { el.crossOrigin = 'anonymous'; } catch(_){}
-          try { el.playsInline = true; } catch(_){}
+          try { el.muted = false; } catch(_){ }
+          try { el.crossOrigin = 'anonymous'; } catch(_){ }
+          try { el.playsInline = true; } catch(_){ }
         }
-      }catch(_){}
-      applyVolumes(); // ensure gains are applied when ready
+      }catch(_){ }
+      applyVolumes();
     });
 
     return ws;
   };
 
-  // Try WebAudio first (best for crossfading). Fallback to MediaElement if decoding fails (e.g., no CORS).
+  // Prefer WebAudio; if decoding fails (e.g., bad CORS), auto-fallback to MediaElement
   let ws = make('WebAudio');
   const urlToLoad = srcUrl || null;
 
   const fallbackToMediaElement = () => {
-    try{ ws && ws.destroy && ws.destroy(); }catch(_){}
+    try{ ws && ws.destroy && ws.destroy(); }catch(_){ }
     ws = make('MediaElement');
     if (urlToLoad) {
-      try { ws.load(urlToLoad); } catch(_){}
+      try { ws.load(urlToLoad); } catch(_){ }
     }
-    // Re-bind timebars after fallback
     try{
       const cur = which === 'A' ? document.getElementById('curA') : document.getElementById('curB');
       const dur = which === 'A' ? document.getElementById('durA') : document.getElementById('durB');
       bindTimebars(ws, cur, dur);
-    }catch(_){}
+    }catch(_){ }
     return ws;
   };
 
-  // If WebAudio decode errors (common when src lacks CORS), swap backends automatically.
-  const errorHandler = (e) => {
-    // Only fallback once
-    try{ ws.un && ws.un('error', errorHandler); }catch(_){}
+  const errorHandler = () => {
+    try{ ws.un && ws.un('error', errorHandler); }catch(_){ }
     fallbackToMediaElement();
   };
   ws.on('error', errorHandler);
 
-  // Initial load (if provided)
   if (urlToLoad) {
-    try { ws.load(urlToLoad); } catch(_){}
+    try { ws.load(urlToLoad); } catch(_){ }
   }
 
   return ws;
@@ -590,9 +601,8 @@ function setWsVolume(ws, vol){
   try{
     const el = ws && typeof ws.getMediaElement === 'function' ? ws.getMediaElement() : null;
     if (el){
-      // Some platforms ignore element.volume; always enforce a hard mute when near zero.
       try{ el.volume = vol; }catch(_){}
-      try{ el.muted = vol < 0.0005; }catch(_){}
+      try{ el.muted = vol <= 0.0005; }catch(_){}
     }
   }catch(_){ }
 }
@@ -954,11 +964,13 @@ applyVolumes();
         remixes   = DEMO_REMIXES;
       }
       renderPlaylists();
-      document.getElementById('crossfade').value = 0.5;
-      applyVolumes();
+      // Initialize faders then prepare decks (no auto-play)
+      const crossEl = document.getElementById('crossfade');
+      if (crossEl) crossEl.value = 0.5;
       masterVolume = 1;
+      applyVolumes();
       if (originals.length && remixes.length && (!originalWave || !remixWave)) {
-        selectPair(0);  // prepare decks (no auto-play)
+        selectPair(0);
       }
     })();
   </script>
