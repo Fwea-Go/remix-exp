@@ -331,11 +331,25 @@ export default {
       const obj = range ? await env.AUDIO.get(key, { range }) : await env.AUDIO.get(key);
       if (!obj) return new Response('Not found', { status: 404, headers: corsHeaders(request) });
 
+      // Guess content type from extension if not present
+      let contentType = obj.httpMetadata?.contentType;
+      if (!contentType) {
+        const ext = (key.split('.').pop()||'').toLowerCase();
+        const extToMime = {
+          mp3: 'audio/mpeg', mpeg: 'audio/mpeg',
+          m4a: 'audio/mp4', mp4: 'audio/mp4', aac: 'audio/aac',
+          wav: 'audio/wav', wave: 'audio/wav',
+          ogg: 'audio/ogg', oga: 'audio/ogg',
+          flac: 'audio/flac', webm: 'audio/webm'
+        };
+        contentType = extToMime[ext] || 'application/octet-stream';
+      }
+
       const headers = {
         ...corsHeaders(request),
-        'Content-Type': obj.httpMetadata?.contentType || 'audio/mpeg',
+        'Content-Type': contentType,
         'Accept-Ranges': 'bytes',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'public, max-age=3600, immutable',
         'Content-Length': String(obj.size),
         'ETag': obj.httpEtag || obj.etag || '',
       };
