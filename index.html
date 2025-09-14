@@ -8,6 +8,7 @@
   <!-- Wavesurfer -->
   <script src="https://unpkg.com/wavesurfer.js"></script>
   <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/timeline.min.js"></script>
+  <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/volume.min.js"></script>
   <style>
     :root{--wf-h-lg:120px;--wf-h-sm:84px}
     /* mobile-friendly timeline visibility */
@@ -444,6 +445,7 @@
     ];
 
     let originalWave = null, remixWave = null;
+    let volA = null, volB = null; // WaveSurfer Volume plugins for each deck
     let isLooping = false;
     let masterVolume = 1;
     let currentIndex=0;
@@ -495,12 +497,12 @@
       scrollActiveIntoView(document.getElementById('remixes-list'));
     }
 
-    function createWaveform(containerSelector, color, timelineSelector){
+    function createWaveform(containerSelector, color, timelineSelector, which){
       const waveH = (window.matchMedia('(max-height: 420px) and (orientation: landscape)').matches) ? 66 : (window.matchMedia('(max-width: 600px)').matches ? 84 : 120);
       const ws = WaveSurfer.create({
         container: containerSelector,
-        waveColor: 'rgba(255,255,255,0.08)',   // faint base so background art shines through
-        progressColor: color,                  // strong neon for the audible portion
+        waveColor: 'rgba(255,255,255,0.08)',
+        progressColor: color,
         height: waveH,
         barWidth: 1,
         barGap: 1,
@@ -509,6 +511,15 @@
         responsive: true,
         cursorColor: 'rgba(255,255,255,.85)'
       });
+
+      // Register Volume plugin if available and remember per deck
+      try {
+        if (window.WaveSurfer && window.WaveSurfer.Volume) {
+          const vol = ws.registerPlugin(WaveSurfer.Volume.create());
+          if (which === 'A') volA = vol; else if (which === 'B') volB = vol;
+        }
+      } catch(_) {}
+
       // Attach timeline plugin if available
       try{
         if (window.WaveSurfer && window.WaveSurfer.Timeline && timelineSelector){
@@ -521,6 +532,7 @@
           }));
         }
       }catch(e){ /* ignore plugin issues */ }
+
       ws.on('ready', ()=>{
         const c = document.querySelector(`${containerSelector} canvas`);
         if(c){ c.style.mixBlendMode='screen'; c.style.opacity='0.95'; c.style.pointerEvents = 'auto'; }
@@ -550,8 +562,15 @@ function applyVolumes(){
   const angle = x * Math.PI * 0.5; // equal-power
   const vA = Math.cos(angle) * m;   // original deck
   const vB = Math.sin(angle) * m;   // remix deck
-  if (originalWave && originalWave.setVolume) originalWave.setVolume(vA);
-  if (remixWave && remixWave.setVolume) remixWave.setVolume(vB);
+
+  // Prefer Volume plugin if present
+  if (volA && typeof volA.setVolume === 'function') volA.setVolume(vA);
+  else if (originalWave && typeof originalWave.setVolume === 'function') originalWave.setVolume(vA);
+  else if (originalWave && typeof originalWave.getMediaElement === 'function' && originalWave.getMediaElement()) originalWave.getMediaElement().volume = vA;
+
+  if (volB && typeof volB.setVolume === 'function') volB.setVolume(vB);
+  else if (remixWave && typeof remixWave.setVolume === 'function') remixWave.setVolume(vB);
+  else if (remixWave && typeof remixWave.getMediaElement === 'function' && remixWave.getMediaElement()) remixWave.getMediaElement().volume = vB;
 }
 
 function debounce(fn, ms=200){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
@@ -591,13 +610,13 @@ if (window.visualViewport){
       prewarm(remixes[i]?.url || remixes[0]?.url);
       // Originals
       destroyWave(originalWave);
-      originalWave = createWaveform('#waveform-original', '#00ffaa', '#timeline-original');
+      originalWave = createWaveform('#waveform-original', '#00ffaa', '#timeline-original', 'A');
       originalWave.load(originals[i]?.url || originals[0]?.url);
       originalWave.on('ready', ()=>{ addLoop(originalWave); applyVolumes(); originalWave.play(); });
       bindTimebars(originalWave, document.getElementById('curA'), document.getElementById('durA'));
       // Remixes
       destroyWave(remixWave);
-      remixWave = createWaveform('#waveform-remix', '#06b6d4', '#timeline-remix');
+      remixWave = createWaveform('#waveform-remix', '#06b6d4', '#timeline-remix', 'B');
       remixWave.load(remixes[i]?.url || remixes[0]?.url);
       remixWave.on('ready', ()=>{ addLoop(remixWave); applyVolumes(); remixWave.play(); });
       bindTimebars(remixWave, document.getElementById('curB'), document.getElementById('durB'));
