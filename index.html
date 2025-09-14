@@ -445,8 +445,7 @@
       {name:'Remix 6',url:'https://www.kozco.com/tech/piano2-CoolEdit.mp3#t=15'}
     ];
 
-    let originalWave = null, remixWave = null;
-    let volA = null, volB = null; // WaveSurfer Volume plugins for each deck
+let originalWave = null, remixWave = null;
     let isLooping = false;
     let masterVolume = 1;
     let currentIndex=0;
@@ -520,14 +519,6 @@
         ...(useWebAudio ? { audioContext: (getAudioCtx() || undefined) } : {})
       });
 
-      // Register Volume plugin if available and remember per deck
-      try {
-        if (window.WaveSurfer && window.WaveSurfer.Volume) {
-          const vol = ws.registerPlugin(WaveSurfer.Volume.create());
-          if (which === 'A') volA = vol; else if (which === 'B') volB = vol;
-        }
-      } catch(_) {}
-
       // Attach timeline plugin if available
       try{
         if (window.WaveSurfer && window.WaveSurfer.Timeline && timelineSelector){
@@ -598,20 +589,29 @@ async function ensureDecksReady(){
 }
 
 function applyVolumes(){
-  const x = Math.min(1, Math.max(0, parseFloat(document.getElementById('crossfade').value) || 0));
-  const m = masterVolume;
-  const angle = x * Math.PI * 0.5; // equal-power
-  const vA = Math.cos(angle) * m;   // original deck
-  const vB = Math.sin(angle) * m;   // remix deck
+  const crossEl = document.getElementById('crossfade');
+  const x = Math.min(1, Math.max(0, parseFloat(crossEl?.value) || 0));
+  const m = Math.min(1, Math.max(0, masterVolume));
+  const angle = x * Math.PI * 0.5; // equal-power law
+  const vA = Math.cos(angle) * m;   // Original deck gain
+  const vB = Math.sin(angle) * m;   // Remix deck gain
 
-  // Prefer Volume plugin if present
-  if (volA && typeof volA.setVolume === 'function') volA.setVolume(vA);
-  else if (originalWave && typeof originalWave.setVolume === 'function') originalWave.setVolume(vA);
-  else if (originalWave && typeof originalWave.getMediaElement === 'function' && originalWave.getMediaElement()) originalWave.getMediaElement().volume = vA;
+  // Prefer Wavesurfer instance volume; fall back to HTMLMediaElement volume
+  try { if (originalWave && typeof originalWave.setVolume === 'function') originalWave.setVolume(vA); } catch(_) {}
+  try {
+    if ((!originalWave || typeof originalWave.setVolume !== 'function') && originalWave && typeof originalWave.getMediaElement === 'function') {
+      const el = originalWave.getMediaElement();
+      if (el) el.volume = vA;
+    }
+  } catch(_) {}
 
-  if (volB && typeof volB.setVolume === 'function') volB.setVolume(vB);
-  else if (remixWave && typeof remixWave.setVolume === 'function') remixWave.setVolume(vB);
-  else if (remixWave && typeof remixWave.getMediaElement === 'function' && remixWave.getMediaElement()) remixWave.getMediaElement().volume = vB;
+  try { if (remixWave && typeof remixWave.setVolume === 'function') remixWave.setVolume(vB); } catch(_) {}
+  try {
+    if ((!remixWave || typeof remixWave.setVolume !== 'function') && remixWave && typeof remixWave.getMediaElement === 'function') {
+      const el = remixWave.getMediaElement();
+      if (el) el.volume = vB;
+    }
+  } catch(_) {}
 }
 
 function debounce(fn, ms=200){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
@@ -656,7 +656,6 @@ if (window.visualViewport){
       originalWave = createWaveform('#waveform-original', '#00ffaa', '#timeline-original', 'A');
       originalWave.load(originals[i]?.url || originals[0]?.url);
       originalWave.on('ready', ()=>{
-        try{ originalWave.setVolume(0.707); }catch(_){}
         addLoop(originalWave);
         applyVolumes();
         if (wasPlaying) originalWave.play();
@@ -668,7 +667,6 @@ if (window.visualViewport){
       remixWave = createWaveform('#waveform-remix', '#06b6d4', '#timeline-remix', 'B');
       remixWave.load(remixes[i]?.url || remixes[0]?.url);
       remixWave.on('ready', ()=>{
-        try{ remixWave.setVolume(0.707); }catch(_){}
         addLoop(remixWave);
         applyVolumes();
         if (wasPlaying) remixWave.play();
