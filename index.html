@@ -9,6 +9,26 @@
   <script src="https://unpkg.com/wavesurfer.js"></script>
   <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/timeline.min.js"></script>
   <style>
+    :root{--wf-h-lg:120px;--wf-h-sm:84px}
+    /* mobile-friendly timeline visibility */
+    .wave-timeline{display:none}
+    @media(min-width:640px){.wave-timeline{display:block}}
+    /* make booking buttons full-width by default */
+    .neon-btn{display:block;width:100%}
+    /* tighten boundary padding on mobile */
+    @media(max-width:600px){
+      .player-boundary{padding:1.25rem .9rem;border-radius:1.25rem}
+      .playlist-section{min-width:0}
+      .songbank{max-height:200px}
+      .playlist-item{font-size:1rem;padding:1rem}
+      .timebar{font-size:.78rem}
+    }
+    /* allow transport to wrap on small screens */
+    #transport{flex-wrap:wrap;gap:1rem}
+    /* crossfader width responsive */
+    .crossfader-slider{width:min(520px,92vw)}
+    @media(max-width:900px){.playlist-row{flex-direction:column}.waveform-heartbeat{height:var(--wf-h-sm)}.crossfader-slider{width:min(520px,92vw)}}
+    @media(min-width:901px){.waveform-heartbeat{height:var(--wf-h-lg)}}
     body{background:linear-gradient(135deg,#232526 0%,#414345 100%);min-height:100vh;font-family:'Segoe UI',sans-serif;color:#fff}
     .player-boundary{background:rgba(44,44,54,.97);border-radius:2rem;box-shadow:0 8px 32px 0 rgba(31,38,135,.27);border:3px solid #00ffaa;max-width:1200px;margin:3rem auto;padding:3.5rem 2rem;position:relative}
     .playlist-row{display:flex;gap:2rem;justify-content:center;margin-bottom:2rem}
@@ -27,7 +47,7 @@
     .waveform-heartbeat{
       position:relative;
       width:100%;
-      height:120px;
+      height:var(--wf-h-lg);
       border-radius:2rem;
       overflow:hidden; /* keep borders clipped to container */
       box-shadow:0 2px 24px 0 rgba(0,255,170,.09);
@@ -200,7 +220,7 @@
     </div>
 
     <!-- Transport -->
-    <div class="flex justify-center gap-6 my-8">
+    <div id="transport" class="flex justify-center gap-6 my-8">
       <button class="flex flex-col items-center group focus:outline-none" id="play-btn">
         <div class="rounded-full bg-[#00ffaa] bg-opacity-20 p-4 mb-2 shadow-lg group-hover:bg-opacity-40 transition"><svg width="36" height="36" viewBox="0 0 36 36"><polygon points="12,8 28,18 12,28" fill="#00ffaa"/></svg></div>
         <span class="font-bold text-[#00ffaa] group-hover:underline">Play</span>
@@ -380,11 +400,12 @@
     }
 
     function createWaveform(containerSelector, color, timelineSelector){
+      const waveH = window.matchMedia('(max-width: 600px)').matches ? 84 : 120;
       const ws = WaveSurfer.create({
         container: containerSelector,
         waveColor: 'rgba(255,255,255,0.08)',   // faint base so background art shines through
         progressColor: color,                  // strong neon for the audible portion
-        height: 120,
+        height: waveH,
         barWidth: 1,
         barGap: 1,
         partialRender: true,
@@ -435,6 +456,14 @@
       if(originalWave && originalWave.setVolume) originalWave.setVolume(vA);
       if(remixWave && remixWave.setVolume) remixWave.setVolume(vB);
     }
+
+    function debounce(fn, ms=200){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+    const adjustWaveHeights = debounce(()=>{
+      const h = window.matchMedia('(max-width: 600px)').matches ? 84 : 120;
+      try{ originalWave?.setOptions?.({height:h}); remixWave?.setOptions?.({height:h}); }catch(e){ /* wavesurfer v7 fallback; rebuild if needed */ }
+    }, 150);
+    window.addEventListener('resize', adjustWaveHeights, {passive:true});
+    window.addEventListener('orientationchange', adjustWaveHeights, {passive:true});
 
     function syncPlay(){
       if(originalWave && remixWave && !originalWave.isPlaying()) originalWave.playPause();
