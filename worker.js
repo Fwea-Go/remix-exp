@@ -15,6 +15,13 @@ function corsHeaders(req) {
 const json = (req, data, status=200) =>
   new Response(JSON.stringify(data), { status, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } });
 
+function jsonWithLen(req, data, status=200, noStore=false){
+  const body = JSON.stringify(data);
+  const base = { ...corsHeaders(req), 'Content-Type': 'application/json' };
+  const headers = noStore ? { ...base, 'Cache-Control': 'no-store', 'Content-Length': String(new TextEncoder().encode(body).length) } : { ...base, 'Content-Length': String(new TextEncoder().encode(body).length) };
+  return { body, headers, status };
+}
+
 function adminOk(req, env) {
   const header = req.headers.get('Authorization') || '';
   const bearer = header.replace(/^Bearer\s+/i, '').trim();
@@ -195,7 +202,9 @@ export default {
 
     // Health
     if (pathname === '/health') {
-      return json(request, { ok: true, r2: !!env.AUDIO });
+      const pack = jsonWithLen(request, { ok: true, r2: !!env.AUDIO });
+      if (request.method === 'HEAD') return new Response(null, { status: pack.status, headers: pack.headers });
+      return new Response(pack.body, { status: pack.status, headers: pack.headers });
     }
 
     // 1) Playlist endpoint
@@ -204,7 +213,6 @@ export default {
     if (pathname === '/playlist') {
       if (!env.AUDIO) return json(request, { error: 'R2 not configured' }, 500);
 
-      const noStore = { 'Cache-Control': 'no-store' };
       const forceAuto = (searchParams.get('mode') || '').toLowerCase() === 'auto';
       const normalizePair = (p, base) => {
         const fix = (u) => {
@@ -249,7 +257,9 @@ export default {
                 [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
               }
             }
-            return new Response(JSON.stringify({ pairs }), { status: 200, headers: { ...corsHeaders(request), 'Content-Type': 'application/json', ...noStore } });
+            const pack = jsonWithLen(request, { pairs }, 200, true);
+            if (request.method === 'HEAD') return new Response(null, { status: pack.status, headers: pack.headers });
+            return new Response(pack.body, { status: pack.status, headers: pack.headers });
           }
           if (Array.isArray(parsed.originals) && Array.isArray(parsed.remixes)) {
             // If a bank-style manifest was saved, pair by index deterministically
@@ -274,7 +284,9 @@ export default {
                 [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
               }
             }
-            return new Response(JSON.stringify({ pairs }), { status: 200, headers: { ...corsHeaders(request), 'Content-Type': 'application/json', ...noStore } });
+            const pack = jsonWithLen(request, { pairs }, 200, true);
+            if (request.method === 'HEAD') return new Response(null, { status: pack.status, headers: pack.headers });
+            return new Response(pack.body, { status: pack.status, headers: pack.headers });
           }
           // malformed -> fall through to auto mode
         } catch (_) {
@@ -304,7 +316,9 @@ export default {
           [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
         }
       }
-      return new Response(JSON.stringify({ pairs }), { status: 200, headers: { ...corsHeaders(request), 'Content-Type': 'application/json', ...noStore } });
+      const pack = jsonWithLen(request, { pairs }, 200, true);
+      if (request.method === 'HEAD') return new Response(null, { status: pack.status, headers: pack.headers });
+      return new Response(pack.body, { status: pack.status, headers: pack.headers });
     }
 
     // 2) Serve audio from R2: GET /r2/<key>
@@ -313,6 +327,11 @@ export default {
 
       const key = decodeURIComponent(pathname.replace('/r2/', ''));
       const isHead = request.method === 'HEAD';
+      // HEAD fast path for iOS: just get metadata, don't fetch body
+      if (isHead) {
+        const metaObj = await env.AUDIO.get(key, { onlyIf: 'exists' }).catch(()=>null);
+        if (!metaObj) return new Response('Not found', { status: 404, headers: corsHeaders(request) });
+      }
       const range = parseRange(request.headers.get('Range'));
       const obj = range
         ? await env.AUDIO.get(key, { range })
@@ -347,6 +366,7 @@ export default {
       if (!src) return json(request, { error: 'Missing src' }, 400);
       const range = request.headers.get('Range') || undefined;
       const upstream = await fetch(src, { headers: range ? { Range: range } : undefined });
+      const status = upstream.status; // may be 200 or 206
       const headers = {
         ...corsHeaders(request),
         'Content-Type': upstream.headers.get('Content-Type') || 'audio/mpeg',
@@ -354,9 +374,12 @@ export default {
         'Content-Range': upstream.headers.get('Content-Range') || '',
         'Content-Length': upstream.headers.get('Content-Length') || '',
         'Cache-Control': 'public, max-age=3600',
+        'ETag': upstream.headers.get('ETag') || '',
+        'Last-Modified': upstream.headers.get('Last-Modified') || ''
       };
-      const body = (request.method === 'HEAD') ? null : upstream.body;
-      return new Response(body, { status: upstream.status, statusText: upstream.statusText, headers });
+      const isHead = request.method === 'HEAD';
+      const isPartial = status === 206 || !!headers['Content-Range'];
+      return new Response(isHead ? null : upstream.body, { status: isPartial ? 206 : 200, headers });
     }
 
     // 4) Generate playlist.json from current R2 contents.
@@ -380,6 +403,8 @@ export default {
       return json(request, { wrote: true, key: 'playlist.json', bytes: JSON.stringify(manifest).length, manifest });
     }
 
-    return json(request, { ok: true, endpoints: ['/playlist?originals=&remixes=&shuffle=1', '/playlist/generate?dryrun=1', '/r2/<key>', '/audio?src=…', '/health'] });
+    const pack = jsonWithLen(request, { ok: true, endpoints: ['/playlist?originals=&remixes=&shuffle=1', '/playlist/generate?dryrun=1', '/r2/<key>', '/audio?src=…', '/health'] });
+    if (request.method === 'HEAD') return new Response(null, { status: pack.status, headers: pack.headers });
+    return new Response(pack.body, { status: pack.status, headers: pack.headers });
   },
 };
