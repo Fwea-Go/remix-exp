@@ -501,96 +501,69 @@ let originalWave = null, remixWave = null;
     const __IS_IOS__ = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 function createWaveform(containerSelector, color, timelineSelector, which, srcUrl){
-  const waveH = (window.matchMedia('(max-height: 420px) and (orientation: landscape)').matches) ? 66 : (window.matchMedia('(max-width: 600px)').matches ? 84 : 120);
+  const waveH = (window.matchMedia('(max-height: 420px) and (orientation: landscape)').matches)
+    ? 66
+    : (window.matchMedia('(max-width: 600px)').matches ? 84 : 120);
 
-  // Builder that can create either backend and, for MediaElement, supplies a pre-configured <audio>
-  const make = (backendName) => {
-    const opts = {
-      container: containerSelector,
-      waveColor: 'rgba(255,255,255,0.08)',
-      progressColor: color,
-      height: waveH,
-      barWidth: 1,
-      barGap: 1,
-      partialRender: true,
-      normalize: true,
-      responsive: true,
-      cursorColor: 'rgba(255,255,255,.85)',
-      backend: backendName
-    };
+  // Always use MediaElement on mobile/desktop for reliable volume control
+  const media = document.createElement('audio');
+  try { media.crossOrigin = 'anonymous'; } catch(_) {}
+  try { media.playsInline = true; } catch(_) {}
+  try { media.preload = 'auto'; } catch(_) {}
+  try { media.muted = false; } catch(_) {}
 
-    if (backendName === 'WebAudio') {
-      opts.audioContext = getAudioCtx() || undefined;
+  const ws = WaveSurfer.create({
+    container: containerSelector,
+    waveColor: 'rgba(255,255,255,0.08)',
+    progressColor: color,
+    height: waveH,
+    barWidth: 1,
+    barGap: 1,
+    partialRender: true,
+    normalize: true,
+    responsive: true,
+    cursorColor: 'rgba(255,255,255,.85)',
+    backend: 'MediaElement',
+    media
+  });
+
+  // Optional timeline
+  try {
+    if (window.WaveSurfer && window.WaveSurfer.Timeline && timelineSelector){
+      ws.registerPlugin(WaveSurfer.Timeline.create({
+        container: timelineSelector,
+        height: 18,
+        primaryColor: color,
+        secondaryColor: 'rgba(255,255,255,.25)',
+        style: { fontSize: '10px' }
+      }));
     }
+  } catch(_) {}
 
-    if (backendName === 'MediaElement') {
-      // IMPORTANT: create the media element up front so crossOrigin is set BEFORE src
-      const media = document.createElement('audio');
-      try { media.crossOrigin = 'anonymous'; } catch(_) {}
-      try { media.playsInline = true; } catch(_) {}
-      try { media.preload = 'auto'; } catch(_) {}
-      try { media.muted = false; } catch(_) {}
-      opts.media = media;
-    }
-
-    const ws = WaveSurfer.create(opts);
-
-    // Attach optional timeline
+  ws.on('ready', ()=>{
+    const c = document.querySelector(`${containerSelector} canvas`);
+    if(c){ c.style.mixBlendMode='screen'; c.style.opacity='0.95'; c.style.pointerEvents = 'auto'; }
     try{
-      if (window.WaveSurfer && window.WaveSurfer.Timeline && timelineSelector){
-        ws.registerPlugin(WaveSurfer.Timeline.create({
-          container: timelineSelector,
-          height: 18,
-          primaryColor: color,
-          secondaryColor: 'rgba(255,255,255,.25)',
-          style: { fontSize: '10px' }
-        }));
+      const el = (ws.getMediaElement && ws.getMediaElement()) ? ws.getMediaElement() : null;
+      if (el) {
+        try { el.muted = false; } catch(_){ }
+        try { el.crossOrigin = 'anonymous'; } catch(_){ }
+        try { el.playsInline = true; } catch(_){ }
       }
-    }catch(e){ /* plugin optional */ }
-
-    ws.on('ready', ()=>{
-      const c = document.querySelector(`${containerSelector} canvas`);
-      if(c){ c.style.mixBlendMode='screen'; c.style.opacity='0.95'; c.style.pointerEvents = 'auto'; }
-      try{
-        const el = (ws.getMediaElement && ws.getMediaElement()) ? ws.getMediaElement() : null;
-        if (el) {
-          try { el.muted = false; } catch(_){ }
-          try { el.crossOrigin = 'anonymous'; } catch(_){ }
-          try { el.playsInline = true; } catch(_){ }
-        }
-      }catch(_){ }
-      applyVolumes();
-    });
-
-    return ws;
-  };
-
-  // Prefer WebAudio; if decoding fails (e.g., bad CORS), auto-fallback to MediaElement
-  let ws = make('WebAudio');
-  const urlToLoad = srcUrl || null;
-
-  const fallbackToMediaElement = () => {
-    try{ ws && ws.destroy && ws.destroy(); }catch(_){ }
-    ws = make('MediaElement');
-    if (urlToLoad) {
-      try { ws.load(urlToLoad); } catch(_){ }
-    }
-    try{
-      const cur = which === 'A' ? document.getElementById('curA') : document.getElementById('curB');
-      const dur = which === 'A' ? document.getElementById('durA') : document.getElementById('durB');
-      bindTimebars(ws, cur, dur);
     }catch(_){ }
-    return ws;
-  };
+    // Apply volumes as soon as the deck is ready
+    applyVolumes();
+  });
 
-  const errorHandler = () => {
-    try{ ws.un && ws.un('error', errorHandler); }catch(_){ }
-    fallbackToMediaElement();
-  };
-  ws.on('error', errorHandler);
+  // Wire time bars
+  try{
+    const cur = which === 'A' ? document.getElementById('curA') : document.getElementById('curB');
+    const dur = which === 'A' ? document.getElementById('durA') : document.getElementById('durB');
+    bindTimebars(ws, cur, dur);
+  }catch(_){ }
 
-  if (urlToLoad) {
-    try { ws.load(urlToLoad); } catch(_){ }
+  if (srcUrl) {
+    try { ws.load(srcUrl); } catch(_){ }
   }
 
   return ws;
@@ -703,6 +676,7 @@ if (window.visualViewport){
         applyVolumes();
         if (wasPlaying) originalWave.play();
       });
+      originalWave.on('play', applyVolumes);
       bindTimebars(originalWave, document.getElementById('curA'), document.getElementById('durA'));
       // Remixes
       destroyWave(remixWave);
@@ -712,6 +686,7 @@ if (window.visualViewport){
         applyVolumes();
         if (wasPlaying) remixWave.play();
       });
+      remixWave.on('play', applyVolumes);
       bindTimebars(remixWave, document.getElementById('curB'), document.getElementById('durB'));
       window.wsA = originalWave; window.wsB = remixWave;
       // Sync transport
@@ -757,6 +732,7 @@ if (window.visualViewport){
       };
       tryPlay(originalWave);
       tryPlay(remixWave);
+      applyVolumes();
     }
 
     document.getElementById('play-btn').onclick = ()=>{ playNow(); };
