@@ -511,7 +511,8 @@
         normalize: true,
         responsive: true,
         cursorColor: 'rgba(255,255,255,.85)',
-        // backend and audioContext removed for iOS reliability
+        backend: 'WebAudio',
+        audioContext: getAudioCtx(),
       });
 
       // Register Volume plugin if available and remember per deck
@@ -645,7 +646,24 @@ if (window.visualViewport){
     }
 
     // Transport handlers
-    document.getElementById('play-btn').onclick = async ()=>{ await unlockAudio(); originalWave?.play(); remixWave?.play(); };
+    function playWhenReady(ws){
+      return new Promise((resolve)=>{
+        if(!ws){ resolve(); return; }
+        const tryPlay = ()=>{ try{ ws.play(); }catch(_){ } resolve(); };
+        // If already decoded or duration known, just play
+        if (typeof ws.getDuration === 'function' && ws.getDuration() > 0){
+          tryPlay();
+          return;
+        }
+        // Otherwise wait for ready once, then play
+        const onReady = ()=>{ ws.un && ws.un('ready', onReady); tryPlay(); };
+        ws.on('ready', onReady);
+      });
+    }
+    document.getElementById('play-btn').onclick = async ()=>{
+      await unlockAudio();
+      await Promise.all([ playWhenReady(originalWave), playWhenReady(remixWave) ]);
+    };
     document.getElementById('pause-btn').onclick = ()=>{ originalWave?.pause(); remixWave?.pause(); };
     document.getElementById('stop-btn').onclick = ()=>{
       originalWave?.stop(); remixWave?.stop();
@@ -675,20 +693,31 @@ if (window.visualViewport){
       }
     });
 
-    // ---- AudioContext unlock for mobile ----
+    // ---- Shared AudioContext + robust unlock for mobile (iOS/Android) ----
     let __audioUnlocked = false;
+    let __ctx = null;
+    function getAudioCtx(){
+      if(!__ctx){
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (Ctx) __ctx = new Ctx();
+      }
+      return __ctx;
+    }
     async function unlockAudio(){
       if(__audioUnlocked) return;
       try{
-        // Kick an HTMLAudio element (iOS-friendly) to guarantee media subsystem is active
+        const ctx = getAudioCtx();
+        if (ctx && ctx.state === 'suspended') {
+          try { await ctx.resume(); } catch(_) {}
+        }
+        // Nudge the media subsystem with a muted HTMLAudio
         const beep = new Audio();
-        beep.muted = true; // silent
+        beep.muted = true;
         beep.src = 'data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA';
-        try{ await beep.play(); }catch(_){}
-        try{ beep.pause(); }catch(_){}
+        try{ await beep.play(); }catch(_){ }
+        try{ beep.pause(); }catch(_){ }
         __audioUnlocked = true;
         applyVolumes();
-        // If waves are ready but paused due to policy, a second user tap will play; do nothing here.
       }catch(_){ /* noop */ }
     }
     ['touchstart','pointerdown','mousedown','keydown'].forEach(ev=>{
