@@ -500,24 +500,23 @@ let originalWave = null, remixWave = null;
     // ---- iOS Detector ----
     const __IS_IOS__ = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    function createWaveform(containerSelector, color, timelineSelector, which){
-      const waveH = (window.matchMedia('(max-height: 420px) and (orientation: landscape)').matches) ? 66 : (window.matchMedia('(max-width: 600px)').matches ? 84 : 120);
-      // Prefer MediaElement on iOS (more reliable playback permissions). Use WebAudio elsewhere.
-      const useWebAudio = !__IS_IOS__;
-      const ws = WaveSurfer.create({
-        container: containerSelector,
-        waveColor: 'rgba(255,255,255,0.08)',
-        progressColor: color,
-        height: waveH,
-        barWidth: 1,
-        barGap: 1,
-        partialRender: true,
-        normalize: true,
-        responsive: true,
-        cursorColor: 'rgba(255,255,255,.85)',
-        backend: useWebAudio ? 'WebAudio' : 'MediaElement',
-        ...(useWebAudio ? { audioContext: (getAudioCtx() || undefined) } : {})
-      });
+function createWaveform(containerSelector, color, timelineSelector, which){
+  const waveH = (window.matchMedia('(max-height: 420px) and (orientation: landscape)').matches) ? 66 : (window.matchMedia('(max-width: 600px)').matches ? 84 : 120);
+  // Use a shared WebAudio context on ALL platforms so we can control gain precisely (iOS media element volume is not writable).
+  const ws = WaveSurfer.create({
+    container: containerSelector,
+    waveColor: 'rgba(255,255,255,0.08)',
+    progressColor: color,
+    height: waveH,
+    barWidth: 1,
+    barGap: 1,
+    partialRender: true,
+    normalize: true,
+    responsive: true,
+    cursorColor: 'rgba(255,255,255,.85)',
+    backend: 'WebAudio',
+    audioContext: (getAudioCtx() || undefined)
+  });
 
       // Attach timeline plugin if available
       try{
@@ -532,25 +531,37 @@ let originalWave = null, remixWave = null;
         }
       }catch(e){ /* ignore plugin issues */ }
 
-      ws.on('ready', ()=>{
-        const c = document.querySelector(`${containerSelector} canvas`);
-        if(c){ c.style.mixBlendMode='screen'; c.style.opacity='0.95'; c.style.pointerEvents = 'auto'; }
-      });
-      // Ensure media element is unmuted and CORS-enabled (fixes iOS no-audio cases)
-      ws.on('ready', ()=>{
-        try{
-          const el = (ws.getMediaElement && ws.getMediaElement()) ? ws.getMediaElement() : null;
-          if (el) {
-            try { el.muted = false; } catch(_){}
-            try { el.crossOrigin = 'anonymous'; } catch(_){}
-            try { el.playsInline = true; } catch(_){}
-          }
-        }catch(_){}
-      });
-      // Safety: reapply volumes on ready
-      ws.on('ready', ()=> applyVolumes());
-      return ws;
+  ws.on('ready', ()=>{
+    const c = document.querySelector(`${containerSelector} canvas`);
+    if(c){ c.style.mixBlendMode='screen'; c.style.opacity='0.95'; c.style.pointerEvents = 'auto'; }
+  });
+  // Ensure media element is unmuted and CORS-enabled (fixes iOS no-audio cases)
+  ws.on('ready', ()=>{
+    try{
+      const el = (ws.getMediaElement && ws.getMediaElement()) ? ws.getMediaElement() : null;
+      if (el) {
+        try { el.muted = false; } catch(_){}
+        try { el.crossOrigin = 'anonymous'; } catch(_){}
+        try { el.playsInline = true; } catch(_){}
+      }
+    }catch(_){}
+  });
+  // Safety: reapply volumes on ready
+  ws.on('ready', ()=> applyVolumes());
+  return ws;
+}
+function setWsVolume(ws, vol){
+  vol = Math.max(0, Math.min(1, Number(vol)||0));
+  try{ if (ws && typeof ws.setVolume === 'function') ws.setVolume(vol); }catch(_){ }
+  try{
+    const el = ws && typeof ws.getMediaElement === 'function' ? ws.getMediaElement() : null;
+    if (el){
+      // Some platforms ignore element.volume; always enforce a hard mute when near zero.
+      try{ el.volume = vol; }catch(_){}
+      try{ el.muted = vol < 0.0005; }catch(_){}
     }
+  }catch(_){ }
+}
 
     const fmtTime = (t=0)=>{
       t = Math.max(0, t|0);
@@ -596,22 +607,8 @@ function applyVolumes(){
   const vA = Math.cos(angle) * m;   // Original deck gain
   const vB = Math.sin(angle) * m;   // Remix deck gain
 
-  // Prefer Wavesurfer instance volume; fall back to HTMLMediaElement volume
-  try { if (originalWave && typeof originalWave.setVolume === 'function') originalWave.setVolume(vA); } catch(_) {}
-  try {
-    if ((!originalWave || typeof originalWave.setVolume !== 'function') && originalWave && typeof originalWave.getMediaElement === 'function') {
-      const el = originalWave.getMediaElement();
-      if (el) el.volume = vA;
-    }
-  } catch(_) {}
-
-  try { if (remixWave && typeof remixWave.setVolume === 'function') remixWave.setVolume(vB); } catch(_) {}
-  try {
-    if ((!remixWave || typeof remixWave.setVolume !== 'function') && remixWave && typeof remixWave.getMediaElement === 'function') {
-      const el = remixWave.getMediaElement();
-      if (el) el.volume = vB;
-    }
-  } catch(_) {}
+  setWsVolume(originalWave, vA);
+  setWsVolume(remixWave,   vB);
 }
 
 function debounce(fn, ms=200){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
@@ -936,8 +933,8 @@ applyVolumes();
       }
       renderPlaylists();
       document.getElementById('crossfade').value = 0.5;
-      masterVolume = 1;
       applyVolumes();
+      masterVolume = 1;
       if (originals.length && remixes.length && (!originalWave || !remixWave)) {
         selectPair(0);  // prepare decks (no auto-play)
       }
