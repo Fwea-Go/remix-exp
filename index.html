@@ -548,7 +548,7 @@
 
       ws.on('ready', ()=>{
         const c = document.querySelector(`${containerSelector} canvas`);
-        if(c){ c.style.mixBlendMode='screen'; c.style.opacity='0.95'; c.style.pointerEvents = 'none'; }
+        if(c){ c.style.mixBlendMode='screen'; c.style.opacity='0.95'; c.style.pointerEvents = 'auto'; }
       });
       return ws;
     }
@@ -618,6 +618,8 @@ if (window.visualViewport){
       const maxIdx = Math.min(originals.length, remixes.length) - 1;
       i = Math.max(0, Math.min(i, maxIdx));
       currentIndex = i;
+      // Capture if either deck was playing before destruction
+      const wasPlaying = (originalWave && originalWave.isPlaying && originalWave.isPlaying()) || (remixWave && remixWave.isPlaying && remixWave.isPlaying());
       // Prewarm both tracks before loading into WaveSurfer
       prewarm(originals[i]?.url || originals[0]?.url);
       prewarm(remixes[i]?.url || remixes[0]?.url);
@@ -625,14 +627,18 @@ if (window.visualViewport){
       destroyWave(originalWave);
       originalWave = createWaveform('#waveform-original', '#00ffaa', '#timeline-original', 'A');
       originalWave.load(originals[i]?.url || originals[0]?.url);
-      originalWave.on('ready', ()=>{ addLoop(originalWave); applyVolumes(); originalWave.play(); });
+      originalWave.on('ready', ()=>{ addLoop(originalWave); applyVolumes(); if (wasPlaying) originalWave.play(); });
       bindTimebars(originalWave, document.getElementById('curA'), document.getElementById('durA'));
       // Remixes
       destroyWave(remixWave);
       remixWave = createWaveform('#waveform-remix', '#06b6d4', '#timeline-remix', 'B');
       remixWave.load(remixes[i]?.url || remixes[0]?.url);
-      remixWave.on('ready', ()=>{ addLoop(remixWave); applyVolumes(); remixWave.play(); });
+      remixWave.on('ready', ()=>{ addLoop(remixWave); applyVolumes(); if (wasPlaying) remixWave.play(); });
       bindTimebars(remixWave, document.getElementById('curB'), document.getElementById('durB'));
+      // Add error logging and debug handles before sync transport
+      originalWave.on('error', (e)=>console.warn('Wave A error:', e));
+      remixWave.on('error', (e)=>console.warn('Wave B error:', e));
+      window.wsA = originalWave; window.wsB = remixWave;
       // Sync transport
       if(originalWave && originalWave.on) originalWave.on('play', syncPlay);
       if(remixWave && remixWave.on) remixWave.on('play', syncPlay);
@@ -676,12 +682,12 @@ if (window.visualViewport){
     function unlockAudio(){
       if(__audioUnlocked) return; try{
         __ctx = __ctx || new (window.AudioContext||window.webkitAudioContext)();
-        if(__ctx.state === 'suspended') { __ctx.resume(); }
+        if(__ctx.state === 'suspended') { __ctx.resume(); try { applyVolumes(); } catch(_) {} }
         __audioUnlocked = true;
       }catch(_){/* noop */}
     }
     ['touchstart','pointerdown','mousedown','keydown'].forEach(ev=>{
-      window.addEventListener(ev, unlockAudio, { once:true, passive:true });
+      window.addEventListener(ev, unlockAudio, { passive:true });
     });
 
     // Volume / crossfade
@@ -828,6 +834,7 @@ applyVolumes();
         remixes   = DEMO_REMIXES;
       }
       renderPlaylists();
+      applyVolumes();
       if (originals.length && remixes.length) selectPair(0);
     })();
   </script>
