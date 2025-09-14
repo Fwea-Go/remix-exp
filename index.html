@@ -138,7 +138,7 @@
       position:absolute;
       inset:0;
       z-index:2; /* ensure waveform sits above decorative background */
-      pointer-events:none;
+      pointer-events:auto;
     }
     /* Blend song waveform with the decorative background for a syringe-like tunnel */
     .waveform-inner canvas{
@@ -498,16 +498,6 @@
       scrollActiveIntoView(document.getElementById('remixes-list'));
     }
 
-    // Shared AudioContext for iOS reliability
-    let __sharedCtx;
-    function getSharedCtx(){
-      if(!__sharedCtx){
-        __sharedCtx = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      if(__sharedCtx.state === 'suspended') __sharedCtx.resume();
-      return __sharedCtx;
-    }
-
     function createWaveform(containerSelector, color, timelineSelector, which){
       const waveH = (window.matchMedia('(max-height: 420px) and (orientation: landscape)').matches) ? 66 : (window.matchMedia('(max-width: 600px)').matches ? 84 : 120);
       const ws = WaveSurfer.create({
@@ -521,8 +511,7 @@
         normalize: true,
         responsive: true,
         cursorColor: 'rgba(255,255,255,.85)',
-        backend: 'WebAudio',
-        audioContext: getSharedCtx(),
+        // backend and audioContext removed for iOS reliability
       });
 
       // Register Volume plugin if available and remember per deck
@@ -627,17 +616,26 @@ if (window.visualViewport){
       destroyWave(originalWave);
       originalWave = createWaveform('#waveform-original', '#00ffaa', '#timeline-original', 'A');
       originalWave.load(originals[i]?.url || originals[0]?.url);
-      originalWave.on('ready', ()=>{ addLoop(originalWave); applyVolumes(); if (wasPlaying) originalWave.play(); });
+      originalWave.on('ready', ()=>{
+        try{ originalWave.setVolume(0.707); }catch(_){}
+        addLoop(originalWave);
+        applyVolumes();
+        if (wasPlaying) originalWave.play();
+      });
+      originalWave.on('error', e=>console.warn('Wave A error', e));
       bindTimebars(originalWave, document.getElementById('curA'), document.getElementById('durA'));
       // Remixes
       destroyWave(remixWave);
       remixWave = createWaveform('#waveform-remix', '#06b6d4', '#timeline-remix', 'B');
       remixWave.load(remixes[i]?.url || remixes[0]?.url);
-      remixWave.on('ready', ()=>{ addLoop(remixWave); applyVolumes(); if (wasPlaying) remixWave.play(); });
+      remixWave.on('ready', ()=>{
+        try{ remixWave.setVolume(0.707); }catch(_){}
+        addLoop(remixWave);
+        applyVolumes();
+        if (wasPlaying) remixWave.play();
+      });
+      remixWave.on('error', e=>console.warn('Wave B error', e));
       bindTimebars(remixWave, document.getElementById('curB'), document.getElementById('durB'));
-      // Add error logging and debug handles before sync transport
-      originalWave.on('error', (e)=>console.warn('Wave A error:', e));
-      remixWave.on('error', (e)=>console.warn('Wave B error:', e));
       window.wsA = originalWave; window.wsB = remixWave;
       // Sync transport
       if(originalWave && originalWave.on) originalWave.on('play', syncPlay);
@@ -647,7 +645,7 @@ if (window.visualViewport){
     }
 
     // Transport handlers
-    document.getElementById('play-btn').onclick = ()=>{ originalWave?.play(); remixWave?.play(); };
+    document.getElementById('play-btn').onclick = async ()=>{ await unlockAudio(); originalWave?.play(); remixWave?.play(); };
     document.getElementById('pause-btn').onclick = ()=>{ originalWave?.pause(); remixWave?.pause(); };
     document.getElementById('stop-btn').onclick = ()=>{
       originalWave?.stop(); remixWave?.stop();
@@ -678,16 +676,23 @@ if (window.visualViewport){
     });
 
     // ---- AudioContext unlock for mobile ----
-    let __audioUnlocked=false; let __ctx;
-    function unlockAudio(){
-      if(__audioUnlocked) return; try{
-        __ctx = __ctx || new (window.AudioContext||window.webkitAudioContext)();
-        if(__ctx.state === 'suspended') { __ctx.resume(); try { applyVolumes(); } catch(_) {} }
+    let __audioUnlocked = false;
+    async function unlockAudio(){
+      if(__audioUnlocked) return;
+      try{
+        // Kick an HTMLAudio element (iOS-friendly) to guarantee media subsystem is active
+        const beep = new Audio();
+        beep.muted = true; // silent
+        beep.src = 'data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA';
+        try{ await beep.play(); }catch(_){}
+        try{ beep.pause(); }catch(_){}
         __audioUnlocked = true;
-      }catch(_){/* noop */}
+        applyVolumes();
+        // If waves are ready but paused due to policy, a second user tap will play; do nothing here.
+      }catch(_){ /* noop */ }
     }
     ['touchstart','pointerdown','mousedown','keydown'].forEach(ev=>{
-      window.addEventListener(ev, unlockAudio, { passive:true });
+      window.addEventListener(ev, unlockAudio, { passive:true, once:false });
     });
 
     // Volume / crossfade
@@ -834,7 +839,7 @@ applyVolumes();
         remixes   = DEMO_REMIXES;
       }
       renderPlaylists();
-      applyVolumes();
+      document.getElementById('crossfade').value = 0.5; masterVolume = 1; applyVolumes();
       if (originals.length && remixes.length) selectPair(0);
     })();
   </script>
