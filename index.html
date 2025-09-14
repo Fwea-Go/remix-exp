@@ -104,8 +104,35 @@
     .waveform-heartbeat:last-child .pulse-overlay{background:linear-gradient(90deg,transparent 0%,#06b6d488 50%,transparent 100%)}
     @keyframes pulse{to{left:100%}}
     .crossfader-container{display:flex;align-items:center;justify-content:center;margin-top:2rem;margin-bottom:1rem}
-    .crossfader-label{font-size:1.1rem;color:#06b6d4;margin:0 1rem;letter-spacing:1px}
-    .crossfader-slider{width:420px;accent-color:#06b6d4;height:8px}
+    .crossfader-label{font-size:1.1rem;margin:0 1rem;letter-spacing:1px}
+    .crossfader-label.original{color:#00ffaa}
+    .crossfader-label.remix{color:#06b6d4}
+    .crossfader-slider{
+      -webkit-appearance:none;
+      appearance:none;
+      width:420px; height:10px; border-radius:9999px; outline:none; cursor:pointer;
+      background:linear-gradient(90deg,#00ffaa 0%, #06b6d4 100%);
+      box-shadow:0 0 10px rgba(0,255,170,.35), 0 0 18px rgba(6,182,212,.25);
+    }
+    .crossfader-slider:focus{box-shadow:0 0 14px rgba(0,255,170,.55), 0 0 24px rgba(6,182,212,.45)}
+    .crossfader-slider::-webkit-slider-runnable-track{
+      height:10px; border-radius:9999px;
+      background:linear-gradient(90deg,#00ffaa 0%, #06b6d4 100%);
+    }
+    .crossfader-slider::-moz-range-track{
+      height:10px; border-radius:9999px;
+      background:linear-gradient(90deg,#00ffaa 0%, #06b6d4 100%);
+    }
+    .crossfader-slider::-webkit-slider-thumb{
+      -webkit-appearance:none; appearance:none; width:18px; height:18px; border-radius:50%;
+      background:#eaffff; border:2px solid #fff;
+      box-shadow:0 0 10px rgba(0,255,170,.6), 0 0 12px rgba(6,182,212,.45);
+      margin-top:-4px; /* centers thumb on 10px track */
+    }
+    .crossfader-slider::-moz-range-thumb{
+      width:18px; height:18px; border-radius:50%; background:#eaffff; border:2px solid #fff;
+      box-shadow:0 0 10px rgba(0,255,170,.6), 0 0 12px rgba(6,182,212,.45);
+    }
     .neon-btn{box-shadow:0 0 12px 2px currentColor,0 0 32px 4px currentColor;border:2px solid currentColor;font-weight:700;transition:background .2s,color .2s,box-shadow .2s,transform .2s;background:transparent;color:inherit;text-shadow:0 0 8px currentColor}
     .neon-btn:hover{background:currentColor!important;color:#23232a!important;transform:scale(1.05);box-shadow:0 0 24px 6px currentColor,0 0 48px 12px currentColor;text-shadow:none}
     @media(max-width:900px){.playlist-row{flex-direction:column}.waveform-heartbeat{height:88px}.crossfader-slider{width:90vw}}
@@ -202,9 +229,9 @@
 
     <!-- Crossfader -->
     <div class="crossfader-container">
-      <span class="crossfader-label">Original</span>
+      <span class="crossfader-label original">Original</span>
       <input type="range" id="crossfade" min="0" max="1" step="0.01" value="0.5" class="crossfader-slider" />
-      <span class="crossfader-label">Remix</span>
+      <span class="crossfader-label remix">Remix</span>
     </div>
 
     <!-- Booking -->
