@@ -460,11 +460,22 @@
       if(originalWave && remixWave && !remixWave.isPlaying()) remixWave.playPause();
     }
 
+    // Prewarm audio for mobile Safari/Chrome: do a 1-byte ranged fetch so duration/seek is instant
+    async function prewarm(url){
+      if(!url) return; 
+      try{ 
+        await fetch(url, { method:'GET', headers:{ 'Range':'bytes=0-0' }, mode:'cors', credentials:'omit' }); 
+      }catch(e){}
+    }
+
     function selectPair(i){
       // Clamp i to valid index
       const maxIdx = Math.min(originals.length, remixes.length) - 1;
       i = Math.max(0, Math.min(i, maxIdx));
       currentIndex = i;
+      // Prewarm both tracks before loading into WaveSurfer
+      prewarm(originals[i]?.url || originals[0]?.url);
+      prewarm(remixes[i]?.url || remixes[0]?.url);
       // Originals
       destroyWave(originalWave);
       originalWave = createWaveform('#waveform-original', '#00ffaa', '#timeline-original');
