@@ -214,7 +214,7 @@ export default {
       if (!env.AUDIO) return json(request, { error: 'R2 not configured' }, 500);
 
       const forceAuto = (searchParams.get('mode') || '').toLowerCase() === 'auto';
-      const normalizePair = (p, base) => {
+      const normalizePair = (p) => {
         const fix = (u) => {
           if (!u) return u;
           // accept already-signed/absolute, /r2/<key>, or raw keys like originals/.. / remixes/..
@@ -248,8 +248,7 @@ export default {
           const parsed = JSON.parse(txt);
           if (Array.isArray(parsed.pairs) && parsed.pairs.length) {
             // Normalize and return only the pairs (do not auto-list or sort)
-            const base = new URL(request.url).origin;
-            const pairs = parsed.pairs.map((p) => normalizePair(p, base));
+            const pairs = parsed.pairs.map((p) => normalizePair(p));
             const doShuffle = ['1','true','yes'].includes((searchParams.get('shuffle')||'').toLowerCase());
             if (doShuffle) {
               for (let i = pairs.length - 1; i > 0; i--) {
@@ -264,7 +263,6 @@ export default {
           if (Array.isArray(parsed.originals) && Array.isArray(parsed.remixes)) {
             // If a bank-style manifest was saved, pair by index deterministically
             const len = Math.min(parsed.originals.length, parsed.remixes.length);
-            const base = new URL(request.url).origin;
             const pairs = [];
             for (let i = 0; i < len; i++) {
               const o = parsed.originals[i];
@@ -275,7 +273,7 @@ export default {
                 remixLabel: `Remix ${String(i+1).padStart(2,'0')}`,
                 originalUrl: o?.url || o,
                 remixUrl: r?.url || r,
-              }, base));
+              }));
             }
             const doShuffle = ['1','true','yes'].includes((searchParams.get('shuffle')||'').toLowerCase());
             if (doShuffle) {
@@ -325,18 +323,12 @@ export default {
     if (pathname.startsWith('/r2/')) {
       if (!env.AUDIO) return json(request, { error: 'R2 not configured' }, 500);
 
-      const key = decodeURIComponent(pathname.replace('/r2/', ''));
+      const key = decodeURIComponent(pathname.slice(4)); // remove leading '/r2/'
       const isHead = request.method === 'HEAD';
-      // HEAD fast path for iOS: just get metadata, don't fetch body
-      if (isHead) {
-        const metaObj = await env.AUDIO.get(key, { onlyIf: 'exists' }).catch(()=>null);
-        if (!metaObj) return new Response('Not found', { status: 404, headers: corsHeaders(request) });
-      }
-      const range = parseRange(request.headers.get('Range'));
-      const obj = range
-        ? await env.AUDIO.get(key, { range })
-        : await env.AUDIO.get(key);
 
+      // Respect HTTP Range for partial requests
+      const range = parseRange(request.headers.get('Range'));
+      const obj = range ? await env.AUDIO.get(key, { range }) : await env.AUDIO.get(key);
       if (!obj) return new Response('Not found', { status: 404, headers: corsHeaders(request) });
 
       const headers = {
